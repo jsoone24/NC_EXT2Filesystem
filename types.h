@@ -25,8 +25,8 @@ BYTE, UNIT8				    unsigned char               //  1byte   /                0~25
 WORD, USHORT, UNIT16		unsigned short              //  2byte   /               0~65535             /
 DWORD, UNIT, UNIT32			unsigned int                //  4byte   /          0 ~ 4,294,967,295        /
 QWORD, UNIT64				unsigned long long int      //  8byte   /   0 ~ 18,446,744,073,709,551,615  /
-SHORT, INT16				short                       //  2byte   /           ?32,768 ~ 32,767        /
-INT, INT32					int                         //  4byte   /  ?2,147,483,648 ~ 2,147,483,647   /
+SHORT, INT16				short                       //  2byte   /           –32,768 ~ 32,767        /
+INT, INT32					int                         //  4byte   /  –2,147,483,648 ~ 2,147,483,647   /
 INT8				        char                        //  1byte   /             -128 ~ 127            /
-INT64				        long long int               //  8byte   /   	?9,223,372,036,854,775,808 ~ 9,223,372,036,854,775,807
+INT64				        long long int               //  8byte   /   	–9,223,372,036,854,775,808 ~ 9,223,372,036,854,775,807
 */
