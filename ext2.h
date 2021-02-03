@@ -89,7 +89,7 @@ typedef struct
 	UINT16  uid;						/* Low 16 bits of Owner Uid 소유자 식별자*/
 	UINT32  size; 						/* Size in bytes 파일크기를 바이트 단위로 나타냄*/
 	UINT32  atime;						/* Access time 마지막 접근 시간*/
-	UINT32  ctime;						/* Creation time - 생성시각인지 change time인지 논의 필요 책에서는 change time 마지막으로 변경한 시각이라 나옴*/
+	UINT32  ctime;						/* Creation time - 생성시간*/
 	UINT32  mtime;						/* Modification time 파일을 마지막으로 변경한 시간*/
 	UINT32  dtime;						/* Deletion Time 파일이 삭제된 시간*/
 	UINT16  gid;  						/* Low 16 bits of Group Id 그룹 식별자*/

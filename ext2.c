@@ -108,15 +108,15 @@ int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
 {
 }
 
-UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
+UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//사용가능한 데이터 블록을 가져오는 함수?
 {
 }
 
-unsigned char toupper(unsigned char ch);
-int isalpha(unsigned char ch);
-int isdigit(unsigned char ch);
+unsigned char toupper(unsigned char ch);	//to upper 즉 대문자로 바꾸는 함수 같은데 c 라이브러리에 있는 함수인듯
+int isalpha(unsigned char ch);				//알파벳 확인 함수
+int isdigit(unsigned char ch);				//숫자 확인 함수
 
-void upper_string(char* str, int length)
+void upper_string(char* str, int length)	//상위 몇비트를 대문자로 바꾸는 함수
 {
 	while (*str && length-- > 0)
 	{
@@ -183,23 +183,23 @@ int lookup_entry(EXT2_FILESYSTEM* fs, const int inode, const char* name, EXT2_NO
 {
 }
 
-int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 begin, UINT32 last, UINT32* number)
+int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 begin, UINT32 last, UINT32* number)	//
 {
 }
 
-int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EXT2_NODE* ret)
+int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EXT2_NODE* ret)	//
 {
 }
 
-int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedName, EXT2_NODE* ret)
+int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedName, EXT2_NODE* ret)	//
 {
 }
 
-int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)
+int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)	//
 {
 }
 
-int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)
+int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//
 {
 	UINT32 inode = 2;
 	INODE inodeBuffer;
@@ -388,7 +388,6 @@ int data_write(EXT2_FILESYSTEM * fs, SECTOR group, SECTOR block, BYTE* sector)
 	return fs->disk->write_sector(fs->disk, real_index, sector);
 }
 
-
 int ext2_format(DISK_OPERATIONS* disk)	//디스크를 ext2파일 시스템으로 초기화 하는 함수
 {
 	EXT2_SUPER_BLOCK sb;
@@ -526,7 +525,7 @@ int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry)	/
 	return lookup_entry(parent->fs, parent->entry.inode, formattedName, retEntry);
 }
 
-UINT32 expand_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
+UINT32 expand_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//???????
 {
 }
 int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector)	//슈퍼블록 포인터와 섹터 개수 섹터당 바이트 수를 받으면 슈퍼블록 구조체를 채워넣는다.
@@ -568,11 +567,11 @@ int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR * gd, EXT2_SUPER_BLOCK * sb, SEC
 }
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb)	//루트 디렉터리를 생성하는 함수
 {
-	BYTE   sector[MAX_SECTOR_SIZE];
-	SECTOR   rootSector = 0;
-	EXT2_DIR_ENTRY * entry;
-	EXT2_GROUP_DESCRIPTOR * gd;
-	EXT2_SUPER_BLOCK * sb_read;
+	BYTE   sector[MAX_SECTOR_SIZE];	//
+	SECTOR   rootSector = 0;		//
+	EXT2_DIR_ENTRY * entry;			//
+	EXT2_GROUP_DESCRIPTOR * gd;		//
+	EXT2_SUPER_BLOCK * sb_read;		//
 	QWORD sector_num_per_group = (disk->numberOfSectors - 1) / NUMBER_OF_GROUPS;
 	INODE * ip;
 	const int BOOT_SECTOR_BASE = 1;
@@ -624,6 +623,6 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb)	//루트 디렉터
 
 	return EXT2_SUCCESS;
 }
-void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)
+void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//????????????
 {
 }
