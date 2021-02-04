@@ -30,9 +30,10 @@
 #define ATTR_ARCHIVE			0x20			//아이노드 필드 설정 시 사용되는 가ㅄ으로 예상됨
 #define ATTR_LONG_NAME			ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID
 
-#define DIR_ENTRY_FREE			0xE5			//디렉토리 엔트리 관리시 필요한 필드인것 같다.
-#define DIR_ENTRY_NO_MORE		0x00			//디렉토리 엔트리 관리시 필요한 필드인것 같다.
-#define DIR_ENTRY_OVERWRITE		1				//디렉토리 엔트리 관리시 필요한 필드인것 같다.
+#define DIR_ENTRY_FREE			0xE5			//디렉터리 엔트리들이 연속적으로 저장되다가 중간에 디렉터리 엔트리가 삭제되면, fragmentaion 발생. 그때 그 빈 공간의 이름 부분을 이 변수로 채워넣는다.
+#define DIR_ENTRY_NO_MORE		0x00			//마지막 디렉터리엔트리임을 뜻하는 변수일것 같다. 
+#define DIR_ENTRY_OVERWRITE		1				//뭘까?
+//디렉터리 엔트리 관리시 필요한 필드. 이름쪽에 들어간다.
 
 #define GET_INODE_GROUP(x)		((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS )
 #define SQRT(x)  				( (x) * (x)  )
@@ -170,6 +171,17 @@ int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytes
 int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR * gd, EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);	//메모리 어떤 곳에 파일디스크립터 내용을 채워넣는 함수
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb);						//루트 디렉터리를 생성하는 함수
 void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num);		//
-typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*,void*, EXT2_NODE*);					//
+
+
+
+typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*, void*, EXT2_NODE*);
+//디렉토리 엔트리정보를 읽어 리스트로 계속 뒤에 추가하는 함수. EXT2_NODE 내부의 fs, entry필드에 연결해야하는 디렉터리 엔트리에 대한 정보가 담겨서 들어온다.
+//첫번째 인자는 왜 필요한 걸까.
+
+int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);
+//ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_read에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
+void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs);
+//ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_umount에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
+
 
 #endif
