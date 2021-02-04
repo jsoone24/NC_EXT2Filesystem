@@ -140,11 +140,10 @@ static SHELL_FILE_OPERATIONS g_file =
 static SHELL_FS_OPERATIONS   g_fsOprs =
 {
 	fs_read_dir,
-	NULL,
+	fs_stat,
 	fs_mkdir,
-	NULL,
+	fs_rmdir,
 	fs_lookup,
-
 	&g_file,
 	NULL
 };
@@ -242,6 +241,7 @@ int	fs_create(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	return result;
 }
+
 
 // 파일 삭제
 int fs_remove(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, const char* name)
@@ -408,4 +408,25 @@ int fs_mkdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENT
 	ext2_entry_to_shell_entry(ext2, &EXT2_Entry, retEntry); // SHELL_ENTRY로 변환
 
 	return result;
+}
+
+
+
+int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int total, unsigned int used)
+{
+	/*
+	shell.c의 shell_cmd_df에서는 free sectors, used sectors 출력
+ 	shell.c에서는 위의 인자들을 넣어 호출하고 있는데 첫 번째 인자인 DISK_OPERATIONS는 빼도 될 듯 -> 쓸 데가 없음
+ 	두 번째 인자로 받은 SHELL_FS_OPERATIONS의 pdata는 EXT2_FILESYSTEM을 가르키고 있음    
+	-> ext2_df를 호출하면서 인자로는 이 EXT2_FILESYSTEM과 total, used를 넘겨줌
+	*/
+}
+
+int fs_rmdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* parent, const char* name)
+{
+	/*
+	이 함수도 DISK_OPERATIONS를 왜 넘겨주는지 모르겠음(사용 안하는 것 같음)
+ 	인자로 받은 parent를 shell_entry_to_ext2_entry 함수로 ext_entry로 변환, 
+	ext2_lookup으로 해당 엔트리 찾은 후 그 엔트리의 주소를 ext2_rmdir에 인자로 전달
+	*/
 }

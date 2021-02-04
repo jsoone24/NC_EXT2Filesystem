@@ -7,6 +7,7 @@ typedef struct
 #define MIN( a, b )					( ( a ) < ( b ) ? ( a ) : ( b ) )
 #define MAX( a, b )					( ( a ) > ( b ) ? ( a ) : ( b ) )
 
+
 int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, const char* buffer)	//
 {
 	BYTE	sector[MAX_SECTOR_SIZE];						//섹터크기만큼 배열 크기 설정
@@ -24,6 +25,7 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 	currentOffset = offset;
 
 	blockSize = MAX_BLOCK_SIZE;
+
 	
 	i = 1;
 	while (offset > blockSize)	//기록할 위치 찾는 루프
@@ -40,6 +42,7 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 
 
 		blockNumber = currentOffset / MAX_BLOCK_SIZE;
+
 		if (currentBlock == 0)	//아이노드에 데이터가 아무것도 할당 안되어있는 경우
 		{
 			if (expand_block(file->fs, file->entry.inode) == EXT2_ERROR)	//file->entry.inode 에 해당하는 아이노드를 찾아서 해당 아이노드의 비어있는 블록에 새로운 데이터 블록 할당.
@@ -102,16 +105,34 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs);
 
 void process_meta_data_for_inode_used(EXT2_NODE * retEntry, UINT32 inode_num, int fileType)
 {
+	/*
+	아이노드를 할당, 해제했을 때 free_inode_count, inode_bitmap 등의 메타데이터를 알맞게 수정하는 함수
+ 	마찬가지로 아이노드를 수정한 후 이 함수를 호출할 경우 이 함수에서 수정된 아이노드의 번호를 가지고 수정내역을 다시 탐색 후 
+	메타데이터를 수정해야 할 것 같은데 그럴 바에는 애초에 아이노드 할당이나 해제하는 함수에서 이 작업도 같이하는 편이 나을 듯
+	세 번째 인자일 fileType은 파일이 디렉토리인지 아닌지 등을 판단해 메타데이터 수정 시 사용할 듯
+	*/
 }
 
-int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType) //inode_num의 데이터 블록에 새로운 엔트리(retEntry) 추가. 성공여부 return
+int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)//inode_num의 데이터 블록에 새로운 엔트리(retEntry) 추가. 성공여부 return
 {
-	// retEntry의 fileType 지정 필요
+	/*
+	인자로 받은 parent의 inode_num을 가지고 해당 아이노드를 읽어온 후 새로운 엔트리를 삽입해주는 함수
+ 	fat에서와 같이 루트 디렉토리, overwrite 등을 생각해 주어야 할 듯(빈 엔트리 찾지 못할 경우,
+	 DIR_ENTRY_NO_MORE을 나타내는 디렉토리 엔트리 추가, 위치정보 업데이트 등)
+	seungmin */
+  // retEntry의 fileType 지정 필요
 	// retEntry의 inode number가 없으면 새로운 inode number(retEntry->entry.inode) 할당
 }
 
 UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//사용가능한 데이터 블록을 가져오는 함수?
 {
+	/*
+	사실 선언만 되어 있고 사용되는 곳이 없어서 함수의 정확한 기능을 유추하기는 불가능. 따라서 기능은 정의하기 나름일 것 같음
+	함수가 사용되고 있지 않음 -> 정의되지 않은 함수 내에서 사용될 것으로 생각됨 – expand_block 함수에서 사용될 것으로 예상
+ 	함수명과 인자를 바탕으로 생각해봤을 때 첫 번째 인자로 받은 EXT2_FILESYSTEM 구조체에서 free_block_count를 확인해 할당할 블록이 있는지 확인하고, 
+	있다면 block_bitmap에서 빈 블록 번호를 return
+ 	expand_block 함수에서는 return 받은 블록 번호를 아이노드의 block 필드의 비어 있는 인덱스에 연결하고, process_meta_data_for_block_used를 통해 메타데이터 수정
+	*/
 }
 
 unsigned char toupper(unsigned char ch);	//to upper 즉 대문자로 바꾸는 함수 같은데 c 라이브러리에 있는 함수인듯
@@ -240,6 +261,12 @@ int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//루트 디렉터리에
 // inode의 number번째 데이터 블록 번호를 return
 int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
 {
+  /*
+	두 번째 인자로 받은 아이노드의 block 필드에서 세 번째 인자로 받은 number인덱스에 해당하는 데이터 블록의 번호를 return
+	이 때 block 필드의 13, 14, 15번 째 인덱스는 이중 혹은 삼중 포인터임으로 이 부분에 대한 해결이 필요할 듯
+	??? - ext2_write에서 i=1 후 ++i를 하는 이유는? -> i++이 맞을 것 같음
+	seungmin */
+  
 	//만약 number이 0~11이 들어오면 직접 데이터 블록 받아서 리턴
 	//12면 간접 블록 들어가서 안에 어떤 데이터 블록을 가리키는지 가져올 필요가 있음
 	//만약 넘버가 13이라면, 이중 간접 블록이 아니라 아이노드 12번째 구조체가 가리키는 간접 블록을 먼저 들어가서 거기서 12번재 다음 블록을 찾을 것으로 예상
@@ -256,6 +283,7 @@ int ext2_read_superblock(EXT2_FILESYSTEM* fs, EXT2_NODE* root)	//슈퍼블록을
 		WARNING("DISK OPERATIONS : %p\nEXT2_FILESYSTEM : %p\n", fs, fs->disk);
 		return EXT2_ERROR;
 	}
+
 
 	meta_read(fs, 0, SUPER_BLOCK, sector);	//
 	memcpy(&fs->sb, sector, sizeof(EXT2_SUPER_BLOCK));	//첫번째 인자가 목적지, 두번째 인자가 어떤 것을 복사할지, 세번째는 크기
@@ -358,6 +386,7 @@ char* my_strncpy(char* dest, const char* src, int length)
 	return dest;
 }
 
+
 // parent에 새로운 디렉터리 생성
 int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry)
 {
@@ -423,12 +452,14 @@ int data_read(EXT2_FILESYSTEM * fs, SECTOR group, SECTOR block, BYTE* sector)
 	const SECTOR BOOT_BLOCK = 1;
 	SECTOR real_index = BOOT_BLOCK + group * fs->sb.block_per_group + block;
 
+
 	return fs->disk->read_sector(fs->disk, real_index, sector); // 성공 여부 리턴 (disksim.c -> disksim_read)
 }
 int data_write(EXT2_FILESYSTEM * fs, SECTOR group, SECTOR block, BYTE* sector)
 {
 	const SECTOR BOOT_BLOCK = 1;
 	SECTOR real_index = BOOT_BLOCK + group * fs->sb.block_per_group + block;
+
 
 	return fs->disk->write_sector(fs->disk, real_index, sector); // 성공 여부 리턴 (disksim.c -> disksim_write)
 }
@@ -442,7 +473,8 @@ int ext2_format(DISK_OPERATIONS* disk)	//디스크를 ext2파일 시스템으로
 	QWORD sector_num_per_group = (disk->numberOfSectors - 1) / NUMBER_OF_GROUPS;	//디스크로부터 디스크 섹터 개수에 대한 정보를 읽어온다. 미리 설정된 그룹 개수만큼 나누어 그룹당 섹터 개수를 계산한다.
 	int i, gi, j;
 	const int BOOT_SECTOR_BASE = 1;	//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
-	char sector[MAX_SECTOR_SIZE];	//슈퍼블록을 넣을 메모리 공간을 할당받는다. 1KB만큼 할당 받음
+
+	char sector[MAX_SECTOR_SIZE];	//슈퍼블록을 넣을 메모리 공간을 할당받는다. 1KB만큼 하랑 받음
 
 	// super block
 	if (fill_super_block(&sb, disk->numberOfSectors, disk->bytesPerSector) != EXT2_SUCCESS)	//메모리의 어떤 공간에 슈퍼블록 구조체에 관한 내용을 채워넣는다.
@@ -570,9 +602,14 @@ int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry)	/
 	return lookup_entry(parent->fs, parent->entry.inode, formattedName, retEntry);
 }
 
-UINT32 expand_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	 // inode에 새로운 데이터블록 할당
+UINT32 expand_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	// inode에 새로운 데이터블록 할당
 {
-	// 데이터블록 비트맵 업데이트 필요
+	/*
+	두 번째 인자로 받은 inode_num에 해당하는 아이노드를 찾아서(get_inode 이용하면 될 듯) 
+	해당 아이노드의 block 필드의 비어있는 인덱스에 새로운 데이터 블록 할당
+	seungmin */
+  // 데이터블록 비트맵 업데이트 필요
+
 }
 int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector)	//슈퍼블록 포인터와 섹터 개수 섹터당 바이트 수를 받으면 슈퍼블록 구조체를 채워넣는다.
 {
@@ -669,8 +706,16 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb)	//루트 디렉터
 
 	return EXT2_SUCCESS;
 }
+
 void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 {
+  /*
+	처리하다의 process
+ 	expand_block 등에서 데이터 블록을 할당, 해제했을 때 free_block_count, block_bitmap 등의 메타데이터를 알맞게 수정하는 함수
+ 	expand_block은 할당의 경우였고 해제의 경우에도 사용될 듯
+ 	다만 데이터 블록을 수정한 후 이 함수를 호출할 경우 이 함수에서 수정된 아이노드의 번호를가지고 수정내역을 다시 탐색 후 
+	메타데이터를 수정해야 할 것 같은데 그럴 바에는 애초에 블록 할당이나 해제하는 함수에서 이 작업도 같이하는 편이 나을 것 같음
+	seungmin */
 	//inode번호로 아이노드 테이블에서 아이노드를 가져옴. 아이노드 데이터블럭에서 가장 마지막 블럭을 비트맵에 사용중이라고 표시
 }
 
@@ -700,6 +745,9 @@ int ext2_remove(EXT2_NODE* file)
 
 	return EXT2_SUCCESS;
 }
+  
+  
+  
 int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer)
 {
 	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
@@ -708,4 +756,22 @@ int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs)
 {
 	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
+}
+  
+  
+int ext2_df(EXT2_FILESYSTEM* fs, unsigned int total, unsigned int used) 
+{
+	/*
+	EXT2_FILESYSTEM의 EXT2_SUPER_BLOCK 필드에서 block_count와 block_count-free_block_count를 
+	각각 total과 used에 저장(블록사이즈=섹터사이즈라 그냥 넣어도 될 듯)
+	*/
+}
+
+int ext2_rmdir(EXT2_NODE* dir)
+{
+	/*
+	하위 엔트리 존재 여부 확인하여 에러 처리, 디렉토리인지 확인하여 에러처리(아이노드 등 확인해야 될 듯)
+ 	엔트리의 이름 DIR_ENTRY_FREE로 빈 엔트리로 표시
+ 	메타 데이터 수정(free_block_count 등)
+	*/
 }
