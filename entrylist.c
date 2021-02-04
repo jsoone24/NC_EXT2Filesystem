@@ -14,6 +14,7 @@ int init_entry_list(SHELL_ENTRY_LIST* list)	//맨 처음 쉘을 키면 아무런
 	return 0;
 }
 
+
 int add_entry_list(SHELL_ENTRY_LIST* list, SHELL_ENTRY* entry)	//쉘 상에서 관리하는 엔트리에 새로운 엔트리를 추가하는 과정.
 {
 	SHELL_ENTRY_LIST_ITEM*	newItem;	//엔트리 리스트 아이템 포인터 생성
