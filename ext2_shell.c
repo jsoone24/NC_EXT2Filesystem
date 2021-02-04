@@ -144,7 +144,6 @@ static SHELL_FS_OPERATIONS   g_fsOprs =
 	fs_mkdir,
 	fs_rmdir,
 	fs_lookup,
-
 	&g_file,
 	NULL
 };
@@ -236,11 +235,26 @@ int	fs_create(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환
 
-	result = ext2_create(&EXT2Parent, name, &EXT2Entry); // (ext2.c) 파일명을 FAT_ENTRY 형식에 맞게 수정한 뒤 해당 이름을 가지는 엔트리가 존재하지 않으면 부모 디렉터리에 추가해줌
+	result = ext2_create(&EXT2Parent, name, &EXT2Entry); // (ext2.c) 파일명을 EXT2_ENTRY 형식에 맞게 수정한 뒤 해당 이름을 가지는 엔트리가 존재하지 않으면 부모 디렉터리에 추가해줌
 
 	ext2_entry_to_shell_entry(EXT2Parent.fs, &EXT2Entry, retEntry); // SHELL_ENTRY로 변환
 
 	return result;
+}
+
+
+// 파일 삭제
+int fs_remove(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, const char* name)
+{
+	EXT2_NODE	EXT2Parent;
+	EXT2_NODE	file;
+	int			result;
+
+	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환 후
+	if (result = ext2_lookup(&EXT2Parent, name, &file)) // 현재 디렉터리에서 해당 파일을 찾음
+		return result;
+
+	return ext2_remove(&file); // 찾은 파일을 삭제
 }
 
 /*
@@ -395,6 +409,8 @@ int fs_mkdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENT
 
 	return result;
 }
+
+
 
 int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int total, unsigned int used)
 {
