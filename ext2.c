@@ -199,57 +199,68 @@ int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)	//
 {
 }
 
-int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//
+int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//루트 디렉터리에 관한 정보를 읽어옴. fs로 넘겨주면, sector에 담아줌
 {
-	UINT32 inode = 2;
+	UINT32 inode = 2;	//루트 디렉터리는 아이노드 2번
 	INODE inodeBuffer;
 	SECTOR rootBlock;
 	get_inode(fs, inode, &inodeBuffer);
-	rootBlock = get_data_block_at_inode(fs, inodeBuffer, 1);
+	rootBlock = get_data_block_at_inode(fs, inodeBuffer, 1);	//아이노드 정보에서 가장 처음 직접 데이터 블록을 가져옴
 
-	return data_read(fs, 0, rootBlock, sector);
+	return data_read(fs, 0, rootBlock, sector);	//fs 로부터 데이터를 읽어서 sector에 저장.
 }
 
-int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)
+int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
 {
+	//만약 n이 0~11이 들어오면 간접 블록 데이터 블록 받아서 리턴
+	//12면 간접 블록 들어가서 안에 어떤 데이터 블록을 가리키는지 가져올 필요가 있음
+	//만약 넘버가 13이라면, 이중 간접 블록이 아니라 아이노드 12번째 구조체가 가리키는 간접 블록을 먼저 들어가서 거기서 12번재 다음 블록을 찾을 것으로 예상
+	//블록 그룹 계산하지 않은 그냥 블록 그룹 내에서 블록 번호 리턴하는 것으로 생각
 }
 
-int ext2_read_superblock(EXT2_FILESYSTEM* fs, EXT2_NODE* root)
+int ext2_read_superblock(EXT2_FILESYSTEM* fs, EXT2_NODE* root)	//슈퍼블록을 읽는 함수 인것 같다. root는 읽은 슈퍼블록을 담을 곳을 인자로 넘겨 받음
 {
-	INT result;
-	BYTE sector[MAX_SECTOR_SIZE];
+	INT result;						//결과를 리턴을 위한 변수
+	BYTE sector[MAX_SECTOR_SIZE];	//섹터크기 만큼 바이트 설정. 연속적으로 고정된 공간 할당 위해 정적배열 사용 (1024바이트)
 
-	if (fs == NULL || fs->disk == NULL)
+	if (fs == NULL || fs->disk == NULL)	//fs가 지정되지 않으면 에러
 	{
 		WARNING("DISK OPERATIONS : %p\nEXT2_FILESYSTEM : %p\n", fs, fs->disk);
 		return EXT2_ERROR;
 	}
 
-	meta_read(fs, 0, SUPER_BLOCK, sector);
-	memcpy(&fs->sb, sector, sizeof(EXT2_SUPER_BLOCK));
-	meta_read(fs, 0, GROUP_DES, sector);
+	meta_read(fs, 0, SUPER_BLOCK, sector);	//곰곰이 생각해봤는데 슈퍼블록을 간단하게 계산하기 위해서 그냥 가장 첫 그룹의 블럭을 참고하는 것 같음
+	memcpy(&fs->sb, sector, sizeof(EXT2_SUPER_BLOCK));	//첫번째 인자가 목적지, 두번째 인자가 어떤 것을 복사할지, 세번째는 크기
+	meta_read(fs, 0, GROUP_DES, sector);	//그룹 디스크립터 읽는듯.
 	memcpy(&fs->gd, sector, sizeof(EXT2_GROUP_DESCRIPTOR));
+	//디스크에서 슈퍼블록 정보 입력을 받아와서 인자로 들어온 fs의 슈퍼블록을 업데이트하는 과정으로 생각됨.
 
-	if (fs->sb.magic_signature != 0xEF53)
+	if (fs->sb.magic_signature != 0xEF53)	//슈퍼블럭인지 판단하는 필드. 고유값 확인으로.
 		return EXT2_ERROR;
 
-	ZeroMemory(sector, sizeof(MAX_SECTOR_SIZE));
-	if (read_root_sector(fs, sector))
+	ZeroMemory(sector, sizeof(MAX_SECTOR_SIZE));	//메모리 초기화.
+	if (read_root_sector(fs, sector))	//슈퍼블록이 루트 디렉터리를 제대로 가리키는지 체크하기 위한 부분이 아닐까 생각.
 		return EXT2_ERROR;
 
 	ZeroMemory(root, sizeof(EXT2_NODE));
-	memcpy(&root->entry, sector, sizeof(EXT2_DIR_ENTRY));
+	memcpy(&root->entry, sector, sizeof(EXT2_DIR_ENTRY));	//앞의 테스트를 거치면 제대로 된 슈퍼블록이므로 root에 담아서 리턴해준다.
 	root->fs = fs;
 
 	return EXT2_SUCCESS;
 }
 
-UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs)
+UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs)	//비어있는 아이노드 번호를 출력하는 것 같다.
 {
+	//EXT2_FILESYSTEM 구조체를 보면 슈퍼블록 그룹디스크립터 있음.그룹 디스크립터는 비어있는 아이노드 수, 아이노드 테이블 시작 주소, 비트맵 시작주소 가지고 있음
+	//일단 아이노드 수 체크해서 없으면 에러 있으면 비트맵 비교를 통해 가장 앞에 비어있는 아이노드 번호를 리턴 해주어야 한다고 생각.
+	//리턴 형이 unsigned int 32비트 형식이니까 그대로 아이노드 번호를 리턴해주어야할것으로 생각.
 }
 
-int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 which_inode_num_to_write, INODE * inode_to_write)
+int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 which_inode_num_to_write, INODE * inode_to_write)	//아이노느들 아이노드 테이블에 저장하는 과정으로 생각됨
 {
+	//호출하는 쪽에서 get_free_inode_number을 통해서 비어있는 아이노드 번호를 알아내서 which_inode_num_to_write로 넘겨줄것으로 예상
+	//호출하는 쪽에서 새로 생성되는 파일에 대한 아이노드 구조체를 새로 만듬. 그리고 그 구조체를 인자로 넘겨줄것으로 예상됨
+	//이 함수에서는 그러면 아이노드 테이블에 아이노드 정보를 기록하고 성공여부를 리턴할 것으로 예상됨.
 }
 
 int ext2_read_dir(EXT2_NODE* dir, EXT2_NODE_ADD adder, void* list)
@@ -282,31 +293,31 @@ int ext2_read_dir(EXT2_NODE* dir, EXT2_NODE_ADD adder, void* list)
 	return EXT2_SUCCESS;
 }
 
-int read_dir_from_sector(EXT2_FILESYSTEM* fs, BYTE* sector, EXT2_NODE_ADD adder, void* list)
+int read_dir_from_sector(EXT2_FILESYSTEM* fs, BYTE* sector, EXT2_NODE_ADD adder, void* list)	//블록단위가 아닌 섹터 단위에서 디렉토리 엔트리 리스트들을 가져오는 함수 인듯. 
 {
 	UINT i, max_entries_Per_Sector;
 	EXT2_DIR_ENTRY*   dir;
 	EXT2_NODE   node;
 
-	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);
-	dir = (EXT2_DIR_ENTRY*)sector;
+	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
+	dir = (EXT2_DIR_ENTRY*)sector;	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
 	for (i = 0; i < max_entries_Per_Sector; i++)
 	{
-		if (dir->name[0] == DIR_ENTRY_FREE)
+		if (dir->name[0] == DIR_ENTRY_FREE)	//탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
 			;
-		else if (dir->name[0] == DIR_ENTRY_NO_MORE)
+		else if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
 			break;
-		else
+		else	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 list에 저장하고 다음 엔트리가 있는지 탐색
 		{
 			node.fs = fs;
 			node.entry = *dir;
-			adder(fs, list, &node);
+			adder(fs, list, &node);	//adder 함수가 구현되어 있지 않은것 같은데 구현 필요한듯. adder를 하면 list에 node.entry의 정보가 달려오지 않을까.
 		}
 		dir++;
 	}
 
-	return (i == max_entries_Per_Sector ? 0 : -1);
+	return (i == max_entries_Per_Sector ? 0 : -1);	//끝가지 돌면 0리턴, 아니면 -1리턴.
 }
 
 char* my_strncpy(char* dest, const char* src, int length)
@@ -625,4 +636,16 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb)	//루트 디렉터
 }
 void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//????????????
 {
+}
+
+
+
+int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer)
+{
+	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
+}
+
+void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs)
+{
+	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
 }
