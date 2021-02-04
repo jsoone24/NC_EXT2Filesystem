@@ -7,11 +7,11 @@ typedef struct
 #define MIN( a, b )					( ( a ) < ( b ) ? ( a ) : ( b ) )
 #define MAX( a, b )					( ( a ) > ( b ) ? ( a ) : ( b ) )
 
-int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, const char* buffer)
+int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, const char* buffer)	//
 {
-	BYTE	sector[MAX_SECTOR_SIZE];
-	DWORD	currentOffset, currentBlock, blockSeq = 0;
-	DWORD	blockNumber, sectorNumber, sectorOffset;
+	BYTE	sector[MAX_SECTOR_SIZE];						//섹터크기만큼 배열 크기 설정
+	DWORD	currentOffset, currentBlock, blockSeq = 0;		//
+	DWORD	blockNumber, sectorNumber, sectorOffset;		//
 	DWORD	readEnd;
 	DWORD	blockSize;
 	INODE node;
@@ -24,13 +24,13 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 	currentOffset = offset;
 
 	blockSize = MAX_BLOCK_SIZE;
-
+	
 	i = 1;
-	while (offset > blockSize)
+	while (offset > blockSize)	//기록할 위치 찾는 루프
 	{
 
-		currentBlock = get_data_block_at_inode(file->fs, node, ++i);
-		blockSize += blockSize;
+		currentBlock = get_data_block_at_inode(file->fs, node, ++i); //TODO
+		blockSize += blockSize;		//암만봐도 NEXT_BLOCK_SIZE 넣는것 같다. TODO
 		blockSeq++;
 	}
 
@@ -40,16 +40,16 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 
 
 		blockNumber = currentOffset / MAX_BLOCK_SIZE;
-		if (currentBlock == 0)
+		if (currentBlock == 0)	//아이노드에 데이터가 아무것도 할당 안되어있는 경우
 		{
-			if (expand_block(file->fs, file->entry.inode) == EXT2_ERROR)
+			if (expand_block(file->fs, file->entry.inode) == EXT2_ERROR)	//file->entry.inode 에 해당하는 아이노드를 찾아서 해당 아이노드의 비어있는 블록에 새로운 데이터 블록 할당.
 				return EXT2_ERROR;
-			process_meta_data_for_block_used(file->fs, file->entry.inode);
-			get_inode(file->fs, file->entry.inode, &node);
-			currentBlock = node.block[0];
+			process_meta_data_for_block_used(file->fs, file->entry.inode);	//프로세스가 처리하다의 프로세스 같다. expand_block 에서 데이터 블록을 할당이나 해제 했을때, free_block_count나 block_bitmap같은 메타 데이터 수정
+			get_inode(file->fs, file->entry.inode, &node);	
+			currentBlock = node.block[0];					
 		}
 
-		if (blockSeq != blockNumber)
+		if (blockSeq != blockNumber)	//다음 데이터 블록으로 넘어감
 		{
 			DWORD nextBlock;
 			blockSeq++;
@@ -75,9 +75,9 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 
 		copyLength = MIN(MAX_SECTOR_SIZE - sectorOffset, readEnd - currentOffset);
 
-		if (copyLength != MAX_SECTOR_SIZE)
+		if (copyLength != MAX_SECTOR_SIZE)	//TODO
 		{
-			if (data_read(file->fs, 0, currentBlock, sector))
+			if (data_read(file->fs, file->fs->sb.block_group_number, currentBlock, sector)) //두번째 인자가 0일때는 그룹이 하나 일때, 여러개면 지금 있는게 맞다.
 				break;
 		}
 
@@ -212,7 +212,7 @@ int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//루트 디렉터리에
 
 int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
 {
-	//만약 n이 0~11이 들어오면 간접 블록 데이터 블록 받아서 리턴
+	//만약 number이 0~11이 들어오면 직접 데이터 블록 받아서 리턴
 	//12면 간접 블록 들어가서 안에 어떤 데이터 블록을 가리키는지 가져올 필요가 있음
 	//만약 넘버가 13이라면, 이중 간접 블록이 아니라 아이노드 12번째 구조체가 가리키는 간접 블록을 먼저 들어가서 거기서 12번재 다음 블록을 찾을 것으로 예상
 	//블록 그룹 계산하지 않은 그냥 블록 그룹 내에서 블록 번호 리턴하는 것으로 생각
@@ -256,7 +256,7 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs)	//비어있는 아이노드 �
 	//리턴 형이 unsigned int 32비트 형식이니까 그대로 아이노드 번호를 리턴해주어야할것으로 생각.
 }
 
-int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 which_inode_num_to_write, INODE * inode_to_write)	//아이노느들 아이노드 테이블에 저장하는 과정으로 생각됨
+int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 which_inode_num_to_write, INODE * inode_to_write)	//아이노드를 아이노드 테이블에 저장하는 과정으로 생각됨
 {
 	//호출하는 쪽에서 get_free_inode_number을 통해서 비어있는 아이노드 번호를 알아내서 which_inode_num_to_write로 넘겨줄것으로 예상
 	//호출하는 쪽에서 새로 생성되는 파일에 대한 아이노드 구조체를 새로 만듬. 그리고 그 구조체를 인자로 넘겨줄것으로 예상됨
@@ -634,8 +634,9 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb)	//루트 디렉터
 
 	return EXT2_SUCCESS;
 }
-void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//????????????
+void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 {
+	//inode번호로 아이노드 테이블에서 아이노드를 가져옴. 아이노드 데이터블럭에서 가장 마지막 블럭을 비트맵에 사용중이라고 표시
 }
 
 
