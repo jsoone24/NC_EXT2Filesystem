@@ -3,7 +3,8 @@
 
 #include "common.h"
 
-int disksim_init( SECTOR, unsigned int, DISK_OPERATIONS* );
+
+int disksim_init( SECTOR, unsigned int, DISK_OPERATIONS* ); 
 void disksim_uninit( DISK_OPERATIONS* );
 
 #endif
