@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <memory.h>
+#include <ctype.h>
+#include <unistd.h>
 #include "shell.h"
 #include "disksim.h"
 
