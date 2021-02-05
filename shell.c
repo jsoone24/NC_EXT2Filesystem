@@ -46,15 +46,31 @@ int shell_cmd_dumpfileinode(int argc, char * argv[]);
 int shell_cmd_fill(int argc, char* argv[]);
 int shell_cmd_dumpdatablockbynum(int argc, char * argv[]);
 
+int shell_cmd_exit(int argc, char* argv[]);
+int shell_cmd_umount(int argc, char* argv[]);
+int shell_cmd_rm(int argc, char* argv[]);
+int shell_cmd_df(int argc, char* argv[]);
+int shell_cmd_rmdir(int argc, char* argv[]);
+int shell_cmd_mkdirst(int argc, char* argv[]);
+int shell_cmd_cat(int argc, char* argv[]);
+
 static COMMAND g_commands[] =
 {
 	{ "cd",		shell_cmd_cd,		COND_MOUNT	},
+	{ "exit",	shell_cmd_exit,		0			},
+	{ "quit",	shell_cmd_exit,		0			},
 	{ "mount",	shell_cmd_mount,	COND_UMOUNT	},
+	{ "umount",	shell_cmd_umount,	COND_MOUNT	},
 	{ "touch",	shell_cmd_touch,	COND_MOUNT	},
 	{ "fill",	shell_cmd_fill,		COND_MOUNT	},
+	{ "rm",		shell_cmd_rm,		COND_MOUNT	},
 	{ "ls",		shell_cmd_ls,		COND_MOUNT	},
 	{ "format",	shell_cmd_format,	COND_UMOUNT	},
+	{ "df",		shell_cmd_df,		COND_MOUNT	},
 	{ "mkdir",	shell_cmd_mkdir,	COND_MOUNT	},
+	{ "rmdir",	shell_cmd_rmdir,	COND_MOUNT	},
+	{ "mkdirst",shell_cmd_mkdirst,	COND_MOUNT	},
+	{ "cat",	shell_cmd_cat,		COND_MOUNT	},
 	{ "dumpdatablockbynum",	shell_cmd_dumpdatablockbynum, COND_MOUNT },
 	{ "dumpsuperblock" , shell_cmd_dumpsuperblock, COND_MOUNT  },
 	{ "dumpgd" , shell_cmd_dumpgd , COND_MOUNT },
