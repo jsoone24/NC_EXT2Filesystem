@@ -211,17 +211,17 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 	SECTOR	rootBlock;
 	EXT2_DIR_ENTRY*	entry;
 
-	entriesPerSector	= fs->disk.bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
+	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
 	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 	
 	rootBlock = get_data_block_at_inode(fs, inode, 1); // 루트 디렉터리의 첫번째 데이터블록 번호
-	read_root_sector(fs, sector) // 루트 디렉터리의 데이터블록 내용을 sector 버퍼에 write
+	read_root_sector(fs, sector); // 루트 디렉터리의 데이터블록 내용을 sector 버퍼에 write
 	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
 	
 	result = find_entry_at_sector(sector, formattedName, 0, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 
-	if( result == -1 ) // formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
-		continue; 
+	if( result == -1 ) // formattedName을 가진 엔트리가 없는 경우
+		return EXT2_ERROR;
 	else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
 	{
 		if( result == -2 ) // 더 이상 엔트리가 없다면 에러
@@ -253,10 +253,10 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
 
-	entriesPerSector	= fs->disk.bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
+	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
 	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 
-	for (i = 0; i < first->blocks; i++) // 데이터 블록 단위로 검색 
+	for (i = 0; i < first.blocks; i++) // 데이터 블록 단위로 검색 
 	{
 		blockNum = get_data_block_at_inode(fs, first, i); // 데이터 블록 번호
 		data_read(fs, 0, blockNum, sector); // 데이터 블록의 데이터를 sector 버퍼에 저장
