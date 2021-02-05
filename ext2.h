@@ -169,6 +169,10 @@ int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry);	
 int ext2_df(EXT2_FILESYSTEM* fs, unsigned int total, unsigned int used);
 int ext2_rmdir(EXT2_NODE* dir); 
 
+//int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);
+//ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_read에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
+//void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs);
+//ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_umount에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
 
 UINT32 expand_block(EXT2_FILESYSTEM * , UINT32 );									//????
 int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);										//메모리 어떤 곳에 슈퍼블록 내용을 채워넣는 함수
@@ -176,15 +180,7 @@ int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR * gd, EXT2_SUPER_BLOCK * sb, SEC
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb);						//루트 디렉터리를 생성하는 함수
 void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num);		//
 
-
 typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*, void*, EXT2_NODE*);
 //디렉토리 엔트리정보를 읽어 리스트로 계속 뒤에 추가하는 함수. EXT2_NODE 내부의 fs, entry필드에 연결해야하는 디렉터리 엔트리에 대한 정보가 담겨서 들어온다.
 //첫번째 인자는 왜 필요한 걸까.
-
-int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);
-//ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_read에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
-void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs);
-//ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_umount에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
-
-
 #endif
