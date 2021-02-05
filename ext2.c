@@ -216,10 +216,33 @@ int lookup_entry(EXT2_FILESYSTEM* fs, const int inode, const char* name, EXT2_NO
 }
 
 // 섹터(데이터 블록)에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 begin, UINT32 last, UINT32* number)
+int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 begin, UINT32 last, UINT32* number)	//sector로 기준점이 들어오면, begin과 last로 섹터 범위를 지정해서 지정된 섹터만큼에서 검색하는걸까 
 {
 	// 섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
 	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
+	UINT i, max_entries_Per_Sector;
+	EXT2_DIR_ENTRY*   dir;
+
+	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
+	dir = (EXT2_DIR_ENTRY*)sector;	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
+
+	for (i = 0; i < max_entries_Per_Sector; i++)
+	{
+		if (dir->name[0] == DIR_ENTRY_FREE)	//탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
+			;
+		else if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
+		{
+			return EXT2_ERROR;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나오면 에러.
+		}
+		else if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
+		{
+			number = i;				//결과를 찾으면 number에 번호 기록후 리턴
+			return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
+		}
+		dir++;	//결과 못 찾으면 계속 돔
+	}
+
+	return 1;
 }
 
 // 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장
