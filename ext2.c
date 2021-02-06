@@ -220,19 +220,18 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 {
 	// 섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
 	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
-	UINT i, max_entries_Per_Sector;
 	EXT2_DIR_ENTRY*   dir;
 
 	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
-	dir = (EXT2_DIR_ENTRY*)sector;	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
+	dir = ((EXT2_DIR_ENTRY*)sector + begin);	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
-	for (i = 0; i < max_entries_Per_Sector; i++)
+	for (UINT i = begin; i <= last; i++)
 	{
 		if (dir->name[0] == DIR_ENTRY_FREE)	//탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
 			;
 		else if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
 		{
-			return EXT2_ERROR;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나오면 에러.
+			return -2;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나왔으므로 에러.
 		}
 		else if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
 		{
@@ -242,7 +241,7 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 		dir++;	//결과 못 찾으면 계속 돔
 	}
 
-	return 1;
+	return EXT2_ERROR;	//여기까지 오는건 다 돌았는데 못 찾는 경우이므로 EXT2_ERROR 리턴
 }
 
 // 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장
@@ -831,8 +830,15 @@ int ext2_remove(EXT2_NODE* file)
 
 	file->entry.name[0] = DIR_ENTRY_FREE; // 해당 엔트리의 name에 삭제된 엔트리라고 저장
 	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
-	// 또 뭐해야하지..?
+	// 또 뭐해야하지..? -할당의 역순
 
+	/*
+	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
+	2. 왠만하면 아이노드가 있는 같은 블록 그룹에 파일이 저장되지만, 만약 다른 블록 그룹에 있을 경우 해당 블록 그룹의 블록 비트맵에서 할당 가능 표시를 해놓는다.
+	3. 아이노드에 표시되어 있는 데이터 블록을 모두 할당 해제 했다면, 아이노드를 나온다.
+	4. 삭제할 파일의 아이노드 넘버를 알고 있으면, 아이노드가 있는 블록그룹의 아이노드 테이블에서 아이노드를 삭제하고, 아이노드 비트맵에서 사용가능이라고 표시해놓는다.
+	5. 파일과 연결된 부모 디렉터리로 가서, 파일에 대한 디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 설정하고, 다른 연결을 해제한다.
+	*/
 	return EXT2_SUCCESS;
 }
   
