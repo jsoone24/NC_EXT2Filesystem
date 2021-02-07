@@ -12,13 +12,13 @@
 #include <string.h>
 
 #define EXT2_N_BLOCKS         	15				//직,간접 블록 개수
-#define	NUMBER_OF_SECTORS		( 4096 + 1 )	//섹터 수?
-#define	NUMBER_OF_GROUPS		2				//그룹 수?
+#define	NUMBER_OF_SECTORS		( 4096 + 1 )	//총 섹터 수
+#define	NUMBER_OF_GROUPS		2				//블록 그룹 수
 #define	NUMBER_OF_INODES		200				//아이노드 수?
 #define	VOLUME_LABLE			"EXT2 BY NC"	//볼륨 이름
 
-#define MAX_SECTOR_SIZE			1024			//최대 섹터 크기
-#define MAX_BLOCK_SIZE			1024			//최대 블록 크기
+#define MAX_SECTOR_SIZE			1024			//최대 섹터 크기 (Byte)
+#define MAX_BLOCK_SIZE			1024			//최대 블록 크기 (Byte)
 #define MAX_NAME_LENGTH			256				//최대 이름 제한
 #define MAX_ENTRY_NAME_LENGTH	11				//최대 엔트리 이름 제한
 
@@ -35,13 +35,13 @@
 #define DIR_ENTRY_OVERWRITE		1				//뭘까?
 //디렉터리 엔트리 관리시 필요한 필드. 이름쪽에 들어간다.
 
-#define GET_INODE_GROUP(x)		((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS )
+#define GET_INODE_GROUP(x)		((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS )	// 하나의 그룹 당 아이노드 개수
 #define SQRT(x)  				( (x) * (x)  )
 #define TRI_SQRT(x)				( (x) * (x) * (x) )
-#define WHICH_GROUP_BLONG(x)	( ( (x) - 1)  / ( NUMBER_OF_INODES / NUMBER_OF_GROUPS )  )
+#define WHICH_GROUP_BLONG(x)	(((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS ))	// ?
 
 #define TSQRT(x) 				((x)*(x)*(x))
-#define GET_INODE_FROM_NODE(x) 	((x)->entry.inode)
+#define GET_INODE_FROM_NODE(x) 	((x)->entry.inode)	// node의 inode number return
 
 #ifdef _WIN32
 #pragma pack(push,fatstructures)
@@ -50,32 +50,32 @@
 
 typedef struct
 {
-	UINT32 max_inode_count;				//파일 시스템에서 샤용가능한 최대 아이노드 수
-	UINT32 block_count;					//파일 시스템 내의 전체 블록 수
+	UINT32 max_inode_count;				//파일 시스템에서 샤용가능한 최대 아이노드 수 = 200
+	UINT32 block_count;					//파일 시스템 내의 전체 블록 수 = 4097
 	UINT32 reserved_block_count;		//아무 대책없이 파일시스템이 꽉 차는 경우를 막기 위해 예약된 블록 영역
-	UINT32 free_block_count;			//비어있는 블록 수
-	UINT32 free_inode_count;			//비어있는 아이노드 수
+	UINT32 free_block_count;			//비어있는 블록 수 = 4061
+	UINT32 free_inode_count;			//비어있는 아이노드 수 = 190
 
-	UINT32 first_data_block;			//첫번째 블록, 즉 블록 그룹 0이 시작되는 블록
-	UINT32 log_block_size;				//블록 크기 지정하는 가ㅄ 0:1KB, 1:2KB, 2:4KB
+	UINT32 first_data_block;			//첫번째 블록, 즉 블록 그룹 0이 시작되는 블록 = 1
+	UINT32 log_block_size;				//블록 크기 지정하는 가ㅄ 0:1KB, 1:2KB, 2:4KB = 0(1KB)
 	UINT32 log_fragmentation_size;		//단편화 발생 시 기록되는 크기 0 1 2로 기록 위에와 크기 같음
-	UINT32 block_per_group;				//블록 그룹마다 블록이 몇개 있는지
+	UINT32 block_per_group;				//블록 그룹마다 블록이 몇개 있는지 = 2048
 	UINT32 fragmentation_per_group;		//각 블록 그룹에 속한 단편화된 개수
-	UINT32 inode_per_group;				//각 블록그룹에 속한 아이노드 수
+	UINT32 inode_per_group;				//각 블록그룹에 속한 아이노드 수 = 100
 	UINT16 magic_signature;				//슈퍼블록인지 확인하는 고유가ㅄ
 	UINT16 errors;						//에러 처리를 위한 플래그. 자세한 에러코드는 책 320쪽 참고 
-	UINT32 first_non_reserved_inode;	//예약되지 않은 아이노드의 첫번째 인덱스, 일반적으로 10개의 아이노드가 예약되어있음
-	UINT16 inode_structure_size;		//아이노드 구조체 크기
+	UINT32 first_non_reserved_inode;	//예약되지 않은 아이노드의 첫번째 인덱스, 일반적으로 10개의 아이노드가 예약되어있음 = 11
+	UINT16 inode_structure_size;		//아이노드 구조체 크기 = 128Byte
 
 	UINT16 block_group_number;			//현재 슈퍼블록을 포함하고 있는 블록 그룹 번호. 각 블록그룹마다 존재하는 슈퍼블록 원본인지 복사본인지 파악
-	UINT32 first_data_block_each_group;	//첫번째 데이터 블록 번호
+	UINT32 first_data_block_each_group;	//첫번째 데이터 블록 번호 = 17
 } EXT2_SUPER_BLOCK;						//super block 에 대한 구조체. 각 블록 그룹마다 있다. 총 1KB
 
 typedef struct
 {
-	UINT32 start_block_of_block_bitmap;	//블록 비트맵의 블록 번호. 그룹 디스크립터 테이블 크기가 고정되어 있지 않기 대문에 바로 다음에 위치하는 블록 비트맵 위치 나타냄
-	UINT32 start_block_of_inode_bitmap;	//아이노드 비트맵의 블록 번호. 블록 비트맵 위치 나타냄
-	UINT32 start_block_of_inode_table;	//아이노드 태이블의 블록 번호. 실제 아이노드 데이터가 담겨있는 블록이 시작되는 블록의 번호이다.
+	UINT32 start_block_of_block_bitmap;	//블록 비트맵의 블록 번호. 그룹 디스크립터 테이블 크기가 고정되어 있지 않기 대문에 바로 다음에 위치하는 블록 비트맵 위치 나타냄 = 2
+	UINT32 start_block_of_inode_bitmap;	//아이노드 비트맵의 블록 번호. 블록 비트맵 위치 나타냄 = 3
+	UINT32 start_block_of_inode_table;	//아이노드 태이블의 블록 번호. 실제 아이노드 데이터가 담겨있는 블록이 시작되는 블록의 번호이다. = 4
 	UINT32 free_blocks_count;			//블록 그룹내의 비어있는 블록 수. 데이터 저장 시 비어있는 블록이 많은 블록 그룹이 우선적으로 선택됨.
 	UINT32 free_inodes_count;			//블록 그룹내의 비어있는 아이노드 수
 	UINT16 directories_count;			//블록 그룹내에 생성된 디렉토리 수. 디렉토리에 데이터 저장시 되도록 부모 디렉터리와 같은 블록 그룹에 저장하려함. 그래서 이 디렉토리 수가 많을 수록
