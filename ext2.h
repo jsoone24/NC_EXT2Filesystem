@@ -48,6 +48,12 @@
 #endif
 #pragma pack(1)
 
+
+#define cal_inode_per_block(x) (x == 0 ? 8 : (x==1 ? 16 : 32))
+#define cal_block_size(x) (x == 0 ? 1024 : (x==1 ? 2048 : 4096))
+
+
+
 typedef struct
 {
 	UINT32 max_inode_count;				//파일 시스템에서 샤용가능한 최대 아이노드 수
