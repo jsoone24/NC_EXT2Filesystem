@@ -429,4 +429,14 @@ int fs_rmdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* pa
  	인자로 받은 parent를 shell_entry_to_ext2_entry 함수로 ext_entry로 변환, 
 	ext2_lookup으로 해당 엔트리 찾은 후 그 엔트리의 주소를 ext2_rmdir에 인자로 전달
 	*/
+
+	EXT2_NODE	EXT2Parent;
+	EXT2_NODE	file;
+	int			result;
+
+	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환 후
+	if (result = ext2_lookup(&EXT2Parent, name, &file)) // 현재 디렉터리에서 해당 파일을 찾음
+		return result;
+
+	return ext2_rmdir(&file); // 찾은 파일을 삭제
 }
