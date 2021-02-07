@@ -157,7 +157,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 				{
 					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
 						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
-					else
+					else//사용중이지 않은 데이터 블록을 찾음
 					{
 						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
 						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + (inode_which_block_group * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
@@ -165,6 +165,8 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 					}
 				}
 			}
+
+			return EXT2_ERROR;	// 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
 		}
 		else	//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하지 않는 경우, 다른 블럭 그룹에서 사용가능한 블럭번호를 계산해 리턴.
 		{
@@ -181,7 +183,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 				{
 					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
 						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
-					else
+					else	//사용중이지 않은 데이터 블록을 찾음
 					{
 						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
 						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + ((_fs->sb.block_group_number) * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
@@ -189,12 +191,12 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 					}
 				}
 			}
-		}
-	}
-	else	//슈퍼블럭 전체에서 할당가능한 데이터 블럭이 없는 경우 에러 발생.
-		result = EXT2_ERROR;
 
-	return result;	//계산된 블럭 번호를 리턴.
+			return EXT2_ERROR;	// 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+		}
+	}	
+	
+	return EXT2_ERROR; //슈퍼블럭 전체에서 할당가능한 데이터 블럭이 없는 경우 에러 발생.
 }
 
 unsigned char toupper(unsigned char ch);	//to upper 즉 대문자로 바꾸는 함수 같은데 c 라이브러리에 있는 함수인듯
