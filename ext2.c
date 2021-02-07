@@ -334,15 +334,11 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 			block*=(blockSize/4);
 		}
 	}
-
-	datablockPergroup=(fs->sb.block_per_group)-(fs->sb.first_data_block_each_group)+1;
-	// 블록 그룹 하나의 전체 블록 수 - 첫 번째 데이터 블록 번호 +1 = 블록 그룹 당 데이터 블록의 수 ( 첫 번째 데이터 블록까지 포함해 주기 위해 +1)
-	// 데이터 블록 번호가 순서대로 부여될 때의 경우
 	
-	groupNumber = (inode.block[count]-1)/datablockPergroup;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 번호
-	groupOffset = (inode.block[count]-1)%datablockPergroup;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 기준 offset
+	groupNumber = (inode.block[count]-1)/fs->sb.block_per_group;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 번호
+	groupOffset = (inode.block[count]-1)%fs->sb.block_per_group;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 기준 offset
 
-	if(data_read(fs,groupNumber,fs->sb.first_data_block_each_group+groupOffset-1 ,sector))		
+	if(data_read(fs,groupNumber,groupOffset ,sector))		
 	{													
 		printf("Invalid block number\n");
 		return -1;
@@ -355,9 +351,9 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 		block/=(blockSize/4);
 		temp=(offset-1)/block;
 		memcpy(blockNumber,&(sector[temp*4]),4);
-		groupNumber = ((*blockNumber)-1)/datablockPergroup;		
-		groupOffset = ((*blockNumber)-1)%datablockPergroup;		
-		if(data_read(fs,groupNumber,fs->sb.first_data_block_each_group+groupOffset-1 ,sector))		
+		groupNumber = ((*blockNumber)-1)/fs->sb.block_per_group;		
+		groupOffset = ((*blockNumber)-1)%fs->sb.block_per_group;		
+		if(data_read(fs,groupNumber,groupOffset ,sector))		
 		{													
 			printf("Search failed\n");
 			return -1;
@@ -713,6 +709,9 @@ int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry)	/
 
 UINT32 expand_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	// inode에 새로운 데이터블록 할당
 {
+	INODE inodeBuffer;
+	get_inode(fs, inode_num, &inodeBuffer);
+	
 	/*
 	두 번째 인자로 받은 inode_num에 해당하는 아이노드를 찾아서(get_inode 이용하면 될 듯) 
 	해당 아이노드의 block 필드의 비어있는 인덱스에 새로운 데이터 블록 할당
