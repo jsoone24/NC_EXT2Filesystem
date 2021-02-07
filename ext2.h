@@ -48,6 +48,12 @@
 #endif
 #pragma pack(1)
 
+
+#define cal_inode_per_block(x) (x == 0 ? 8 : (x==1 ? 16 : 32))
+#define cal_block_size(x) (x == 0 ? 1024 : (x==1 ? 2048 : 4096))
+
+
+
 typedef struct
 {
 	UINT32 max_inode_count;				//파일 시스템에서 샤용가능한 최대 아이노드 수 = 200
@@ -100,7 +106,7 @@ typedef struct
 	UINT32  i_reserved1;				// OS dependent 1 -????? 특정 운영체제 정보라는데 실질적으로 사용되지 않는다고 함
 	UINT32  block[EXT2_N_BLOCKS];		/* Pointers to blocks 데이터 블록을 가리키는 포인터 배열 15개. 12개 직접블록 1개 간접 포인터, 1개 이중 간접 포인터 1개 3중 간접포인터*/
 	UINT32  generation;					/* File version (for NFS) 네트워크 파일시스템을 위한 파일 버전*/
-	UINT32  file_acl;  					/* File ACL 파이르이 확장 속성*/
+	UINT32  file_acl;  					/* File ACL 파일의 확장 속성*/
 	UINT32  dir_acl;   					/* Directory ACL 디렉토리 접근 제어 리스트*/
 	UINT32  faddr;     					/* Fragment address 단편 주소 */
 	UINT32  i_reserved2[3];				// OS dependent 2 -????? 특정 운영체제 정보라는데 실질적으로 사용되지 않는다고 함

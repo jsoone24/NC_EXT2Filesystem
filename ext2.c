@@ -211,7 +211,9 @@ int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
 	return EXT2_SUCCESS;
 }
 
-UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//사용가능한 데이터 블록을 가져오는 함수?
+
+//fs와 아이노드 번호가 들어오면, 아이노드 번호로 블록 그룹을 계산. 계산된 블록 그룹에서 먼저 블록 할당을 하려고함, 블록 그룹에 더이상 할당 가능한 데이터 블럭이 없으면, 인근 블록 그룹에서 블록 가져오는 것으로 하겠음.
+UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	
 {
 	/*
 	사실 선언만 되어 있고 사용되는 곳이 없어서 함수의 정확한 기능을 유추하기는 불가능. 따라서 기능은 정의하기 나름일 것 같음
@@ -220,6 +222,68 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//사용
 	있다면 block_bitmap에서 빈 블록 번호를 return
  	expand_block 함수에서는 return 받은 블록 번호를 아이노드의 block 필드의 비어 있는 인덱스에 연결하고, process_meta_data_for_block_used를 통해 메타데이터 수정
 	*/
+
+	UINT32 result, inode_which_block_group;	//result : 사용가능한 블록 번호를 저장할 변수, inode_which_block_group : 인자로 받은 아이노드가 어느 블록 그룹에 있는지
+	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;	//블럭당 섹터의 개수
+	BYTE sector = SECTOR[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
+	const SECTOR BOOT_BLOCK = 1;	//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
+	EXT2_FILESYSTEM* _fs = fs;
+
+	if(_fs->sb.free_block_count)	//슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
+	{
+		inode_which_block_group = GET_INODE_GROUP(inode_num);	//아이노드가 속해있는 블럭 그룹 계산
+		if(_fs[inode_which_block_group].gd.free_blocks_count)	//아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		{
+			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
+			for(UINT32 i = 0 ; i < sector_num_per_block ; i++)	//블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
+			{
+				ZeroMemory(sector, MAX_SECTOR_SIZE);
+				data_read(_fs, inode_which_block_group, _fs->gd.start_block_of_block_bitmap + i, sector);	//데이터 블럭을 읽어옴.
+
+				for(UINT32 j = 0; j < MAX_SECTOR_SIZE * 8; j++)	//j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
+				{
+					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
+						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
+					else//사용중이지 않은 데이터 블록을 찾음
+					{
+						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
+						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + (inode_which_block_group * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
+						return result;
+					}
+				}
+			}
+
+			return EXT2_ERROR;	// 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+		}
+		else	//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하지 않는 경우, 다른 블럭 그룹에서 사용가능한 블럭번호를 계산해 리턴.
+		{
+			while(!(_fs->gd.free_blocks_count))	//사용가능한 데이터 블럭이 없는 블럭 그룹은 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
+				_fs++;
+			
+			//돌아다니다가 사용가능한 데이터 블럭이 있는 블럭 그룹을 찾은 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
+			for(UINT32 i = 0 ; i < sector_num_per_block ; i++)	//블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
+			{
+				ZeroMemory(sector, MAX_SECTOR_SIZE);
+				data_read(_fs, _fs->sb.block_group_number, _fs->gd.start_block_of_block_bitmap + i, sector);	//데이터 블럭을 읽어옴.
+
+				for(UINT32 j = 0; j < MAX_SECTOR_SIZE * 8; j++)
+				{
+					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
+						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
+					else	//사용중이지 않은 데이터 블록을 찾음
+					{
+						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
+						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + ((_fs->sb.block_group_number) * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
+						return result;
+					}
+				}
+			}
+
+			return EXT2_ERROR;	// 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+		}
+	}	
+	
+	return EXT2_ERROR; //슈퍼블럭 전체에서 할당가능한 데이터 블럭이 없는 경우 에러 발생.
 }
 
 unsigned char toupper(unsigned char ch);	//to upper 즉 대문자로 바꾸는 함수 같은데 c 라이브러리에 있는 함수인듯
@@ -307,19 +371,18 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 {
 	// 섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
 	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
-	UINT i, max_entries_Per_Sector;
 	EXT2_DIR_ENTRY*   dir;
 
 	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
-	dir = (EXT2_DIR_ENTRY*)sector;	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
+	dir = ((EXT2_DIR_ENTRY*)sector + begin);	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
-	for (i = 0; i < max_entries_Per_Sector; i++)
+	for (UINT i = begin; i <= last; i++)
 	{
 		if (dir->name[0] == DIR_ENTRY_FREE)	//탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
 			;
 		else if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
 		{
-			return EXT2_ERROR;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나오면 에러.
+			return -2;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나왔으므로 에러.
 		}
 		else if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
 		{
@@ -329,7 +392,7 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 		dir++;	//결과 못 찾으면 계속 돔
 	}
 
-	return 1;
+	return EXT2_ERROR;	//여기까지 오는건 다 돌았는데 못 찾는 경우이므로 EXT2_ERROR 리턴
 }
 
 // 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장 (eunseo)
@@ -420,7 +483,41 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 
 // inode table에서 inode number에 대한 메타데이터를 inodeBuffer에 저장
 int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)
+// 각 블록 그룹마다 할당되는 아이노드 번호가 정해져 있다고 가정(아이노드 테이블에 저장)
 {
+	UNIT32 groupNumber;
+	UNIT32 inodeTable;
+	UNIT32 inode_per_block;
+	UNIT32 tableOffset;
+	UNIT32 blockOffset;
+	BYTE sector[MAX_SECTOR_SIZE];
+
+	if (inode>fs->sb.max_inode_count)
+	{
+		printf("Invalid inode number\n");
+		return -1;
+	}
+
+	groupNumber = (inode-1)/fs->sb.inode_per_group;	// 해당 아이노드가 속해있는 블록그룹의 번호 계산(-1은 아이노드의 인덱스가 1부터 시작하기 때문)
+	inodeTable = fs->sb.start_block_of_inode_table -1;
+	// 해당 블록그룹에서의 아이노드 테이블 시작 위치 -> 수퍼블록에 들어있는 아이노드 테이블의 시작 블록(offset 개념) - 1
+	/* 각각의 블록그룹마다 1 block의 수퍼블록, n block의 group_descriptor_table, 1 block의 blcok_bitmap, 1 block의 inode_bitmap을 가지고 있다
+	   이 때 group_descriptor_table의 크기는 모두 동일할 것임으로 start_block_of_inode_table을 n+3으로 set해서 offset으로 사용(부트섹터는 data_read에서 더해줌)*/
+	/* -1을 해준 이유 - 블록을 읽을 때는 시작 블록까지 포함에서 읽어야 함으로 첫 블록을 포함시켜 주기 위해*/
+	
+	inode_per_block = cal_inode_per_block(fs->sb.log_block_size);// 블록 크기에 따라 블록 당 아이노드 수 계산 - 아이노드의 크기를 128byte로 가정함 -> 다른 변수 set할 때도 이게 편할 듯
+
+	tableOffset = (((inode-1)%fs->sb.inode_per_group)-1)/inode_per_block;	// 해당 아이노드 테이블에서의 offset(블록 단위)
+	blockOffset = (((inode-1)%fs->sb.inode_per_group)-1) - (tableOffset*inode_per_block);		// 블록 내 offset(아이노드 개수 단위)
+	if(data_read(fs,groupNumber, inodeTable + tableOffset,sector))		// 해당 아이노드가 속해 있는 블록을 읽어옴(블록 크기=섹터 크기라고 했을 때)											
+	{													// 부트 섹터는 data_read 함수에서 1로 계산
+		printf("Invalid inode number\n");
+		return -1;
+	}
+	memcpy(inodeBuffer,&(sector[blockOffset*128]),128);	
+	// inodeBuffer에 해당 아이노드가 들어있는 메모리만 복사해줌
+
+	return EXT2_SUCCESS;
 }
 
 // 루트 디렉터리의 섹터단위 데이터블록을 sector 버퍼에 write
@@ -437,11 +534,82 @@ int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//루트 디렉터리에
 
 // inode의 number번째 데이터 블록 번호를 return
 int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
-{
-  /*
-	두 번째 인자로 받은 아이노드의 block 필드에서 세 번째 인자로 받은 number인덱스에 해당하는 데이터 블록의 번호를 return
-	이 때 block 필드의 13, 14, 15번 째 인덱스는 이중 혹은 삼중 포인터임으로 이 부분에 대한 해결이 필요할 듯
-	??? - ext2_write에서 i=1 후 ++i를 하는 이유는? -> i++이 맞을 것 같음
+{	
+	UNIT32 blockSize;			// 블록 크기
+	UNUT32 maxNumber;			// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수
+	UNIT32 count=12;			// 몇 번째 간접 블록인지 계산하기 위한 변수
+	UNIT32 offset;				// 간접 블록 내에서 몇 번째 블록인지
+	UNIT32 datablockPergroup;	// 그룹 당 데이터 블록 수
+	UNIT32 groupNumber;			// 블록 그룹 번호 계산
+	UNIT32 groupOffset;			// 블록 그룹 offset
+	BYTE sector[MAX_SECTOR_SIZE];
+	
+	blockSize=cal_block_size(fs->sb.log_block_size)	// 블록 크기 설정
+	UNIT32 block=(blockSize/4);						// 블록 당 가질 수 있는 번호의 수(4byte 단위임으로)
+	maxNumber=12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
+	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
+
+	if (number<1||number>maxNumber)	
+	{
+		printf("Invalid block number\n");
+		return -1;
+	}
+	else if (number<13)					// 직접 블록이 가르킬 수 있는 범위 안일 경우 바로 인덱싱하여 return
+	{
+		return inode.block[number-1];	// 인자로 인덱스가 아니라 몇 번째 데이터 블록인지가 넘어오는 듯 해 인덱스가 될 수 있도록 -1
+	}
+	else
+	{	
+		UNUT32 buffer=number-12;		// 간접 블록에서 몇 번째 블록인지 계산하기 위해 -12		
+		while(1)
+		{
+			if((buffer-1)/block==0)			// 해당 간접 블록에 속할 경우
+			{
+				offset=buffer%block;
+				offset++;
+				break;
+			}
+			count++;
+			buffer-=block;
+			block*=(blockSize/4);
+		}
+	}
+	
+	groupNumber = (inode.block[count]-1)/fs->sb.block_per_group;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 번호
+	groupOffset = (inode.block[count]-1)%fs->sb.block_per_group;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 기준 offset
+
+	if(data_read(fs,groupNumber,groupOffset ,sector))		
+	{													
+		printf("Invalid block number\n");
+		return -1;
+	}
+
+	UNIT32 temp;
+	UNIT32 *blockNumber;
+	for (int i=0;i<count-12;i++)
+	{	
+		block/=(blockSize/4);
+		temp=(offset-1)/block;
+		memcpy(blockNumber,&(sector[temp*4]),4);
+		groupNumber = ((*blockNumber)-1)/fs->sb.block_per_group;		
+		groupOffset = ((*blockNumber)-1)%fs->sb.block_per_group;		
+		if(data_read(fs,groupNumber,groupOffset ,sector))		
+		{													
+			printf("Search failed\n");
+			return -1;
+		}
+		offset-=(temp*block);
+	}
+
+	memcpy(blockNumber, &(sector[(offset-1)*4]),4);
+	return (*blockNumber);
+
+
+
+  	/*
+	추가 - ext2 write에서 i=1 후 ++i를 하는 이유 -> 위의 주석에서 볼 수 있듯 인자로 넘어오는 number는 인덱스가 아니라 몇 번째 블록인지를 뜻 하는 것 같다
+	ext2_write에서는 currentBlock으로 i_block[0]의 값을 넣은 후 다음 블록을 찾을 때 이 함수의 number 인자로 i=1 후 ++i를 해서 2를 넘겨주게 되는데,
+	이것이 2번 째 블록을 읽어달라는 요청을 의미하는 것 같다(i_block[0] 값을 가져옴으로써 첫 번째 블록은 이미 읽었음으로)
 	seungmin */
   
 	//만약 number이 0~11이 들어오면 직접 데이터 블록 받아서 리턴
@@ -781,6 +949,9 @@ int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry)	/
 
 UINT32 expand_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	// inode에 새로운 데이터블록 할당
 {
+	INODE inodeBuffer;
+	get_inode(fs, inode_num, &inodeBuffer);
+	
 	/*
 	두 번째 인자로 받은 inode_num에 해당하는 아이노드를 찾아서(get_inode 이용하면 될 듯) 
 	해당 아이노드의 block 필드의 비어있는 인덱스에 새로운 데이터 블록 할당
@@ -922,8 +1093,15 @@ int ext2_remove(EXT2_NODE* file)
 
 	file->entry.name[0] = DIR_ENTRY_FREE; // 해당 엔트리의 name에 삭제된 엔트리라고 저장
 	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
-	// 또 뭐해야하지..?
+	// 또 뭐해야하지..? -할당의 역순
 
+	/*
+	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
+	2. 왠만하면 아이노드가 있는 같은 블록 그룹에 파일이 저장되지만, 만약 다른 블록 그룹에 있을 경우 해당 블록 그룹의 블록 비트맵에서 할당 가능 표시를 해놓는다.
+	3. 아이노드에 표시되어 있는 데이터 블록을 모두 할당 해제 했다면, 아이노드를 나온다.
+	4. 삭제할 파일의 아이노드 넘버를 알고 있으면, 아이노드가 있는 블록그룹의 아이노드 테이블에서 아이노드를 삭제하고, 아이노드 비트맵에서 사용가능이라고 표시해놓는다.
+	5. 파일과 연결된 부모 디렉터리로 가서, 파일에 대한 디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 설정하고, 다른 연결을 해제한다.
+	*/
 	return EXT2_SUCCESS;
 }
   
