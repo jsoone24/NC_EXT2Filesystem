@@ -93,7 +93,7 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 	}
 
 	node.size = MAX(currentOffset, node.size); // 새로 쓴 영역과 기존 파일의 크기 중 큰 값을 파일 크기로 설정
-	set_inode_onto_inode_table(file->fs, file->entry.inode, &node); // ???
+	set_inode_onto_inode_table(file->fs, file->entry.inode, &node); // 아이노드 테이블 업데이트
 
 	return currentOffset - offset;
 }
@@ -110,6 +110,24 @@ void process_meta_data_for_inode_used(EXT2_NODE * retEntry, UINT32 inode_num, in
 	*/
 }
 
+// 디스크의 location에 value를 기록 (eunseo)
+int set_entry( EXT2_FILESYSTEM* fs, const EXT2_DIR_ENTRY_LOCATION* location, const EXT2_DIR_ENTRY* value)
+{
+	/* value의 크기가 섹터만큼 크지 않더라도 바로 기록하면 나머지 정보들이 원하지 않는 값으로 바뀔 수 있기 때문에
+	섹터 단위로 읽어와 해당 영역만 바꿔준 후 다시 기록함 */
+	BYTE	sector[MAX_SECTOR_SIZE];
+	EXT2_DIR_ENTRY*	entry;
+
+	data_read(fs, location->group, location->block, sector); // 디스크에서 해당 위치의 정보를 sector 버퍼로 읽어옴
+
+	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
+	entry[location->offset] = *value; // 원하는 값을 기록
+
+	data_write(fs, location->group, location->block, sector); // 디스크에 sector 버퍼의 정보를 씀
+
+	return EXT2_ERROR;
+}
+
 // inode_num의 데이터 블록에 새로운 엔트리(retEntry) 추가. 성공여부 return (eunseo)
 int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
 {
@@ -118,94 +136,73 @@ int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
  	fat에서와 같이 루트 디렉토리, overwrite 등을 생각해 주어야 할 듯(빈 엔트리 찾지 못할 경우,
 	 DIR_ENTRY_NO_MORE을 나타내는 디렉토리 엔트리 추가, 위치정보 업데이트 등)
 	seungmin */
-	// overwrite인 경우는 언제 필요한지 모르겠음
+	// fileType이 overwrite인 경우는 언제 필요한지 모르겠음. 일단 고려하지 않음.
 
-	EXT2_DIR_ENTRY_LOCATION	begin;
-	EXT2_DIR_ENTRY			entry;
-	EXT2_NODE				entryNoMore;
-	INODE					node; // inode_num의 node 메타데이터
-	BYTE					entryName[2] = { 0, };
-	BYTE					sector[MAX_SECTOR_SIZE];
-	UINT32					retEntry_inode_num;
+	EXT2_NODE	entryNoMore;			// retEntry 다음 위치에 마지막 엔트리임을 나타내기 위한 노드
+	INODE* 		inodeBuffer;			// retEntry의 새로 할당 받은 아이노드에 대한 메타데이터
+	BYTE		entryName[2] = { 0, };	// 엔트리 이름을 저장하는 버퍼
+	UINT32		retEntry_inodeNum;		// retEntry의 inode number가 없을 경우 새로 할당 받은 inode number
+	DWORD		dataBlockNum;			// 새로 할당 받은 데이터 블록 넘버
 
-	begin.group = 0;
-	begin.block = 0;
-	begin.offset = 0;
-
-	if ( GET_INODE_FROM_NODE(retEntry) == 0 ) // retEntry의 inode number가 없으면 새로운 inode number 할당
+	if ( GET_INODE_FROM_NODE(retEntry) == 0 ) // retEntry의 inode number가 없으면
 	{
-		retEntry_inode_num = get_free_inode_number(retEntry->fs);
-		retEntry->entry.inode = retEntry_inode_num;
-		// inode bitmap 수정 필요
+		retEntry_inodeNum = get_free_inode_number(retEntry->fs); // 새로운 inode number 할당
+		retEntry->entry.inode = retEntry_inodeNum;
+
+		inodeBuffer = (INODE*)malloc(sizeof(INODE));
+		ZeroMemory(inodeBuffer, sizeof(INODE));
+		set_inode_onto_inode_table(retEntry->fs, retEntry->entry.inode, inodeBuffer); // 아이노드 테이블 업데이트
+
+		inodeBuffer->mode = 0x1FF | fileType; // file type 지정
+	}
+	else // retEntry의 inode number가 있으면
+	{
+		get_inode(retEntry->fs, retEntry->entry.inode, inodeBuffer); // retEntry의 아이노드 메타데이터를 inodeBuffer에 저장
+		inodeBuffer->mode = 0x1FF | fileType; // file type 지정
 	}
 
-	get_inode(retEntry->fs, inode_num, &node);
-	node.mode = 0x1FF | fileType; // node의 file type 지정
-
 	ZeroMemory( &entryNoMore, sizeof( EXT2_NODE ) ); // entryNoMore를 0으로 초기화
-	entryName[0] = DIR_ENTRY_FREE;  // 빈 엔트리를 찾아 entryNoMore에 담아옴
-	
+	entryName[0] = DIR_ENTRY_FREE;
+
+	// 빈 엔트리를 찾아 entryNoMore에 담아옴
 	if( lookup_entry( retEntry->fs, inode_num, entryName, &entryNoMore ) == EXT2_SUCCESS ) // 빈 엔트리가 있다면
 	{
-		// 블록 데이터를 읽어와서 수정 후 다시 적어줌
-		data_read(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-		entry = (EXT2_DIR_ENTRY*)sector;
-		entry[entryNoMore.location.offset] = retEntry->entry;
-		data_write(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-
+		set_entry(retEntry->fs, &entryNoMore.location, &retEntry->entry); // 이 위치에 새 엔트리 기록
 		retEntry->location = entryNoMore.location; // 위치정보 기록
 	}
 	else // 빈 엔트리가 없다면
 	{
-		// 루트 디렉터리이면서 데이터 블록에 모든 엔트리가 찼다면 (rootEntryCount 구하는 연산 재확인 필요)
-		UINT32	rootEntryCount = retEntry->location.block * ( retEntry->fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ) ) + retEntry->location.offset;
-		UINT32	entryPerSector = retEntry->fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY );
-		if ( ( inode_num == 2 ) && ( rootEntryCount >= entryPerSector ) )
-		{
-			WARNING( "Cannot insert entry into the root entry\n" );
-			return EXT2_ERROR;
-		}
-
 		// 마지막 엔트리 뒤에 새 엔트리 추가
 		entryName[0] = DIR_ENTRY_NO_MORE;
 		if ( lookup_entry( retEntry->fs, inode_num, entryName, &entryNoMore ) == EXT2_ERROR ) // 마지막 엔트리를 찾지 못하면
 			return EXT2_ERROR;
 
-		// 마지막 엔트리를 찾았다면 이 위치에 새 엔트리 기록
-		data_read(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-		entry = (EXT2_DIR_ENTRY*)sector;
-		entry[entryNoMore.location.offset] = retEntry->entry;
-		data_write(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-
+		set_entry(retEntry->fs, &entryNoMore.location, &retEntry->entry); // 마지막 엔트리를 찾았다면 이 위치에 새 엔트리 기록
 		retEntry->location = entryNoMore.location; // 위치정보 기록
 		entryNoMore.location.offset++; // 마지막 엔트리라고 저장할 위치로 이동
 
-		// 블록에 모든 엔트리가 찼다면 (미완성)
-		if ( entryNoMore.location.offset == entryPerSector )
+		// 블록에 모든 엔트리가 찼다면
+		if ( entryNoMore.location.offset == MAX_BLOCK_SIZE / sizeof( EXT2_DIR_ENTRY ) )
 		{
-			// 그 다음 블록에 저장
-			entryNoMore.location.block++;
+			if (inode_num == 2) // 루트 디렉터리이면
+			{
+				entryNoMore.location.offset--; // 기존 마지막 엔트리의 위치로 다시 이동
+				entryNoMore.entry.name[0] = DIR_ENTRY_NO_MORE; // 마지막 엔트리임을 설정하고
+				set_entry(retEntry->fs, &entryNoMore.location, &entryNoMore.entry); // 디스크에 저장
+
+				WARNING( "Cannot insert entry into the root entry\n" );
+				return EXT2_ERROR;
+			}
+
+			entryNoMore.location.block++; // 그 다음 블록에 저장
 			entryNoMore.location.offset = 0;
 
-			// 블록 그룹의 모든 데이터 블록이 찼다면
-			if( entryNoMore.location.block == retEntry->fs->sb.block_per_group )
-			{
-				// 그 다음 블록 그룹에 저장
-				entryNoMore.location.group++;
-				if (entryNoMore.location.group == 0) // 모든 블록 그룹을 다 사용했다면
-				{
-					WARNING( "No more clusters are remained\n" );
-					return EXT2_ERROR;
-				}
-				entryNoMore.location.block = 0;
-			}
+			if (expand_block(retEntry->fs, inode_num) == EXT2_ERROR) // 새로운 데이터 블록 할당
+				return EXT2_ERROR;
+			// process_meta_data_for_block_used(retEntry->fs, file->entry.inode); // ?
 		}
 	
-		// 마지막이라고 기록
-		data_read(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-		entry = (EXT2_DIR_ENTRY*)sector;
-		entry[entryNoMore.location.offset] = entryNoMore.entry;
-		data_write(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
+		set_entry(retEntry->fs, &entryNoMore.location, &entryNoMore.entry); // 마지막이라고 기록
 	}
 
 	return EXT2_SUCCESS;
@@ -655,7 +652,7 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs)	//비어있는 아이노드 �
 	//EXT2_FILESYSTEM 구조체를 보면 슈퍼블록 그룹디스크립터 있음.그룹 디스크립터는 비어있는 아이노드 수, 아이노드 테이블 시작 주소, 비트맵 시작주소 가지고 있음
 	//일단 아이노드 수 체크해서 없으면 에러 있으면 비트맵 비교를 통해 가장 앞에 비어있는 아이노드 번호를 리턴 해주어야 한다고 생각.
 	//리턴 형이 unsigned int 32비트 형식이니까 그대로 아이노드 번호를 리턴해주어야할것으로 생각.
-}
+} // 아이노드 비트맵 업데이트도 필요 (eunseo)
 
 int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 which_inode_num_to_write, INODE * inode_to_write)	//아이노드를 아이노드 테이블에 저장하는 과정으로 생각됨
 {
