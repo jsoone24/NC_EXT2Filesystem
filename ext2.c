@@ -243,7 +243,41 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 
 // inode table에서 inode number에 대한 메타데이터를 inodeBuffer에 저장
 int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)
+// 각 블록 그룹마다 할당되는 아이노드 번호가 정해져 있다고 가정(아이노드 테이블에 저장)
 {
+	UNIT32 groupNumber;
+	UNIT32 inodeTable;
+	UNIT32 inode_per_block;
+	UNIT32 tableOffset;
+	UNIT32 blockOffset;
+	BYTE sector[MAX_SECTOR_SIZE];
+
+	if (inode>fs->sb.max_inode_count)
+	{
+		printf("Invalid inode number\n");
+		return -1;
+	}
+
+	groupNumber = (inode-1)/fs->sb.inode_per_group;	// 해당 아이노드가 속해있는 블록그룹의 번호 계산(-1은 아이노드의 인덱스가 1부터 시작하기 때문)
+	inodeTable = fs->sb.start_block_of_inode_table -1;
+	// 해당 블록그룹에서의 아이노드 테이블 시작 위치 -> 수퍼블록에 들어있는 아이노드 테이블의 시작 블록(offset 개념) - 1
+	/* 각각의 블록그룹마다 1 block의 수퍼블록, n block의 group_descriptor_table, 1 block의 blcok_bitmap, 1 block의 inode_bitmap을 가지고 있다
+	   이 때 group_descriptor_table의 크기는 모두 동일할 것임으로 start_block_of_inode_table을 n+3으로 set해서 offset으로 사용(부트섹터는 data_read에서 더해줌)*/
+	/* -1을 해준 이유 - 블록을 읽을 때는 시작 블록까지 포함에서 읽어야 함으로 첫 블록을 포함시켜 주기 위해*/
+	
+	inode_per_block = cal_inode_per_block(fs->sb.log_block_size);// 블록 크기에 따라 블록 당 아이노드 수 계산 - 아이노드의 크기를 128byte로 가정함 -> 다른 변수 set할 때도 이게 편할 듯
+
+	tableOffset = (((inode-1)%fs->sb.inode_per_group)-1)/inode_per_block;	// 해당 아이노드 테이블에서의 offset(블록 단위)
+	blockOffset = (((inode-1)%fs->sb.inode_per_group)-1) - (tableOffset*inode_per_block);		// 블록 내 offset(아이노드 개수 단위)
+	if(data_read(fs,groupNumber, inodeTable + tableOffset,sector))		// 해당 아이노드가 속해 있는 블록을 읽어옴(블록 크기=섹터 크기라고 했을 때)											
+	{													// 부트 섹터는 data_read 함수에서 1로 계산
+		printf("Invalid inode number\n");
+		return -1;
+	}
+	memcpy(inodeBuffer,&(sector[blockOffset*128]),128);	
+	// inodeBuffer에 해당 아이노드가 들어있는 메모리만 복사해줌
+
+	return EXT2_SUCCESS;
 }
 
 // 루트 디렉터리의 섹터단위 데이터블록을 sector 버퍼에 write
@@ -260,11 +294,86 @@ int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//루트 디렉터리에
 
 // inode의 number번째 데이터 블록 번호를 return
 int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
-{
-  /*
-	두 번째 인자로 받은 아이노드의 block 필드에서 세 번째 인자로 받은 number인덱스에 해당하는 데이터 블록의 번호를 return
-	이 때 block 필드의 13, 14, 15번 째 인덱스는 이중 혹은 삼중 포인터임으로 이 부분에 대한 해결이 필요할 듯
-	??? - ext2_write에서 i=1 후 ++i를 하는 이유는? -> i++이 맞을 것 같음
+{	
+	UNIT32 blockSize;			// 블록 크기
+	UNUT32 maxNumber;			// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수
+	UNIT32 count=12;			// 몇 번째 간접 블록인지 계산하기 위한 변수
+	UNIT32 offset;				// 간접 블록 내에서 몇 번째 블록인지
+	UNIT32 datablockPergroup;	// 그룹 당 데이터 블록 수
+	UNIT32 groupNumber;			// 블록 그룹 번호 계산
+	UNIT32 groupOffset;			// 블록 그룹 offset
+	BYTE sector[MAX_SECTOR_SIZE];
+	
+	blockSize=cal_block_size(fs->sb.log_block_size)	// 블록 크기 설정
+	UNIT32 block=(blockSize/4);						// 블록 당 가질 수 있는 번호의 수(4byte 단위임으로)
+	maxNumber=12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
+	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
+
+	if (number<1||number>maxNumber)	
+	{
+		printf("Invalid block number\n");
+		return -1;
+	}
+	else if (number<13)					// 직접 블록이 가르킬 수 있는 범위 안일 경우 바로 인덱싱하여 return
+	{
+		return inode.block[number-1];	// 인자로 인덱스가 아니라 몇 번째 데이터 블록인지가 넘어오는 듯 해 인덱스가 될 수 있도록 -1
+	}
+	else
+	{	
+		UNUT32 buffer=number-12;		// 간접 블록에서 몇 번째 블록인지 계산하기 위해 -12		
+		while(1)
+		{
+			if((buffer-1)/block==0)			// 해당 간접 블록에 속할 경우
+			{
+				offset=buffer%block;
+				offset++;
+				break;
+			}
+			count++;
+			buffer-=block;
+			block*=(blockSize/4);
+		}
+	}
+
+	datablockPergroup=(fs->sb.block_per_group)-(fs->sb.first_data_block_each_group)+1;
+	// 블록 그룹 하나의 전체 블록 수 - 첫 번째 데이터 블록 번호 +1 = 블록 그룹 당 데이터 블록의 수 ( 첫 번째 데이터 블록까지 포함해 주기 위해 +1)
+	// 데이터 블록 번호가 순서대로 부여될 때의 경우
+	
+	groupNumber = (inode.block[count]-1)/datablockPergroup;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 번호
+	groupOffset = (inode.block[count]-1)%datablockPergroup;		// 간접 블록에서 읽은 데이터 블록 번호의 블록 그룹 기준 offset
+
+	if(data_read(fs,groupNumber,fs->sb.first_data_block_each_group+groupOffset-1 ,sector))		
+	{													
+		printf("Invalid block number\n");
+		return -1;
+	}
+
+	UNIT32 temp;
+	UNIT32 *blockNumber;
+	for (int i=0;i<count-12;i++)
+	{	
+		block/=(blockSize/4);
+		temp=(offset-1)/block;
+		memcpy(blockNumber,&(sector[temp*4]),4);
+		groupNumber = ((*blockNumber)-1)/datablockPergroup;		
+		groupOffset = ((*blockNumber)-1)%datablockPergroup;		
+		if(data_read(fs,groupNumber,fs->sb.first_data_block_each_group+groupOffset-1 ,sector))		
+		{													
+			printf("Search failed\n");
+			return -1;
+		}
+		offset-=(temp*block);
+	}
+
+	memcpy(blockNumber, &(sector[(offset-1)*4]),4);
+	return (*blockNumber);
+
+
+
+  	/*
+	추가 - ext2 write에서 i=1 후 ++i를 하는 이유 -> 위의 주석에서 볼 수 있듯 인자로 넘어오는 number는 인덱스가 아니라 몇 번째 블록인지를 뜻 하는 것 같다
+	ext2_write에서는 currentBlock으로 i_block[0]의 값을 넣은 후 다음 블록을 찾을 때 이 함수의 number 인자로 i=1 후 ++i를 해서 2를 넘겨주게 되는데,
+	이것이 2번 째 블록을 읽어달라는 요청을 의미하는 것 같다(i_block[0] 값을 가져옴으로써 첫 번째 블록은 이미 읽었음으로)
 	seungmin */
   
 	//만약 number이 0~11이 들어오면 직접 데이터 블록 받아서 리턴
