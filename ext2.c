@@ -124,7 +124,9 @@ int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)//inode_nu
 	// retEntry의 inode number가 없으면 새로운 inode number(retEntry->entry.inode) 할당
 }
 
-UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//사용가능한 데이터 블록을 가져오는 함수?
+
+//fs와 아이노드 번호가 들어오면, 아이노드 번호로 블록 그룹을 계산. 계산된 블록 그룹에서 먼저 블록 할당을 하려고함, 블록 그룹에 더이상 할당 가능한 데이터 블럭이 없으면, 인근 블록 그룹에서 블록 가져오는 것으로 하겠음.
+UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	
 {
 	/*
 	사실 선언만 되어 있고 사용되는 곳이 없어서 함수의 정확한 기능을 유추하기는 불가능. 따라서 기능은 정의하기 나름일 것 같음
@@ -133,6 +135,66 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)	//사용
 	있다면 block_bitmap에서 빈 블록 번호를 return
  	expand_block 함수에서는 return 받은 블록 번호를 아이노드의 block 필드의 비어 있는 인덱스에 연결하고, process_meta_data_for_block_used를 통해 메타데이터 수정
 	*/
+
+	UINT32 result, inode_which_block_group;	//result : 사용가능한 블록 번호를 저장할 변수, inode_which_block_group : 인자로 받은 아이노드가 어느 블록 그룹에 있는지
+	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;	//블럭당 섹터의 개수
+	BYTE sector = SECTOR[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
+	const SECTOR BOOT_BLOCK = 1;	//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
+	EXT2_FILESYSTEM* _fs = fs;
+
+	if(_fs->sb.free_block_count)	//슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
+	{
+		inode_which_block_group = GET_INODE_GROUP(inode_num);	//아이노드가 속해있는 블럭 그룹 계산
+		if(_fs[inode_which_block_group].gd.free_blocks_count)	//아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		{
+			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
+			for(UINT32 i = 0 ; i < sector_num_per_block ; i++)	//블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
+			{
+				ZeroMemory(sector, MAX_SECTOR_SIZE);
+				data_read(_fs, inode_which_block_group, _fs->gd.start_block_of_block_bitmap + i, sector);	//데이터 블럭을 읽어옴.
+
+				for(UINT32 j = 0; j < MAX_SECTOR_SIZE * 8; j++)	//j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
+				{
+					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
+						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
+					else
+					{
+						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
+						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + (inode_which_block_group * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
+						return result;
+					}
+				}
+			}
+		}
+		else	//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하지 않는 경우, 다른 블럭 그룹에서 사용가능한 블럭번호를 계산해 리턴.
+		{
+			while(!(_fs->gd.free_blocks_count))	//사용가능한 데이터 블럭이 없는 블럭 그룹은 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
+				_fs++;
+			
+			//돌아다니다가 사용가능한 데이터 블럭이 있는 블럭 그룹을 찾은 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
+			for(UINT32 i = 0 ; i < sector_num_per_block ; i++)	//블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
+			{
+				ZeroMemory(sector, MAX_SECTOR_SIZE);
+				data_read(_fs, _fs->sb.block_group_number, _fs->gd.start_block_of_block_bitmap + i, sector);	//데이터 블럭을 읽어옴.
+
+				for(UINT32 j = 0; j < MAX_SECTOR_SIZE * 8; j++)
+				{
+					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
+						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
+					else
+					{
+						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
+						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + ((_fs->sb.block_group_number) * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
+						return result;
+					}
+				}
+			}
+		}
+	}
+	else	//슈퍼블럭 전체에서 할당가능한 데이터 블럭이 없는 경우 에러 발생.
+		result = EXT2_ERROR;
+
+	return result;	//계산된 블럭 번호를 리턴.
 }
 
 unsigned char toupper(unsigned char ch);	//to upper 즉 대문자로 바꾸는 함수 같은데 c 라이브러리에 있는 함수인듯
