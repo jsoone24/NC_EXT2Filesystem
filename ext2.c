@@ -238,9 +238,9 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 			for(UINT32 i = 0 ; i < sector_num_per_block ; i++)	//블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
 			{
 				ZeroMemory(sector, MAX_SECTOR_SIZE);
-				data_read(_fs, inode_which_block_group, _fs->gd.start_block_of_block_bitmap + i, sector);	//데이터 블럭을 읽어옴.
+				data_read(_fs, inode_which_block_group, (_fs->gd.start_block_of_block_bitmap + i), sector);	//데이터 블럭을 읽어옴.
 
-				for(UINT32 j = 0; j < MAX_SECTOR_SIZE * 8; j++)	//j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
+				for(UINT32 j = 0; j < (MAX_SECTOR_SIZE * 8); j++)	//j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
 				{
 					if(sector & 1)	//사용중이면 1, 사용중이지 않으면 0
 						sector = sector >> 1;	//비트하나씩 땡겨가며 가정 처음 부터 탐색.
@@ -1133,4 +1133,6 @@ int ext2_rmdir(EXT2_NODE* dir)
  	엔트리의 이름 DIR_ENTRY_FREE로 빈 엔트리로 표시
  	메타 데이터 수정(free_block_count 등)
 	*/
+
+	
 }

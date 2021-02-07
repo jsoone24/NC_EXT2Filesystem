@@ -14,7 +14,7 @@
 #define EXT2_N_BLOCKS         	15				//직,간접 블록 개수
 #define	NUMBER_OF_SECTORS		( 4096 + 1 )	//총 섹터 수
 #define	NUMBER_OF_GROUPS		2				//블록 그룹 수
-#define	NUMBER_OF_INODES		200				//아이노드 수?
+#define	NUMBER_OF_INODES		200				//볼륨 전체의 아이노드 수
 #define	VOLUME_LABLE			"EXT2 BY NC"	//볼륨 이름
 
 #define MAX_SECTOR_SIZE			1024			//최대 섹터 크기 (Byte)
@@ -132,16 +132,28 @@ typedef struct
 typedef struct
 {
 	EXT2_SUPER_BLOCK		sb;			//슈퍼블럭을 가리킴
-	EXT2_GROUP_DESCRIPTOR	gd;			//그룹 디스크립터를 가리킴
+	EXT2_GROUP_DESCRIPTOR	gd;			//그룹 디스크립터를 가리킴 
 	DISK_OPERATIONS*		disk;		//디스크 동작에 대한 것 disk.h 에 있다.
 } EXT2_FILESYSTEM;						//이 구조체 하나가 블록 그룹 하나를 지칭 할 것으로 예상됨
 
+/*
+그룹 디스크립터 테이블 어떻게 할건지? 아래대로 한다면?
+나비효과 : init 함수 수정 format 함수 수정, 바로 위 구조체 수정, datablock 숫자 위치, ext_2.c 파일 대거 수정 예상
+긍정적 효과 : 실제 ext2와 비슷해진다.
+
+선언
+EXT2_GROUP_DESCRIPTOR_TABLE*	gdt;
+gdt = (EXT2_GROUP_DESCRIPTOR_TABLE*)malloc(sizeof(EXT2_GROUP_DESCRIPTOR)*NUMBER_OF_GROUPS);
+
+사용법 예시
+gdt[fs->sb.block_group_number].free_blocks_count;
+*/
 typedef struct
 {
-	UINT32 group;						//?????
-	UINT32 block;						//?????
-	UINT32 offset;						//?????
-} EXT2_DIR_ENTRY_LOCATION;				//디렉터리 엔트리 위치에 대한 구조체인듯 하다. 왜 필요할까?
+	UINT32 group;						//디렉터리 엔트리가 저장되어있는 블록 그룹의 번호
+	UINT32 block;						//고유한 번호로안하고 위에 블록 그룹에서의 데이터 블록 번호. 블록 그룹에서 상대적임
+	UINT32 offset;						//위의 그룹, 블럭 번호를 통해서 알아낸 데이터 블록 상에서의 offset 번호
+} EXT2_DIR_ENTRY_LOCATION;				//먼저 디렉터리 엔트리에 대한 정보를 찾고, 디렉터리 엔트리의 위치를 빠르게 찾기 위해서 사용하는 구조체
 
 typedef struct
 {
