@@ -140,9 +140,9 @@ static SHELL_FILE_OPERATIONS g_file =
 static SHELL_FS_OPERATIONS   g_fsOprs =
 {
 	fs_read_dir,
-	fs_stat,
+	NULL,
 	fs_mkdir,
-	fs_rmdir,
+	NULL,
 	fs_lookup,
 	&g_file,
 	NULL
