@@ -1203,5 +1203,64 @@ int ext2_rmdir(EXT2_NODE* dir)
  	메타 데이터 수정(free_block_count 등)
 	*/
 
-	
+	EXT2_NODE* _dir = dir;	//EXT2_NODE 를 다른 포인터로 지정해 놓는다.
+	INODE dir_inode;				//삭제하려는 디렉터리에 대한 아이노드 정보를 저장하는 변수
+	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;	//블럭당 섹터의 개수
+	UINT32 k = 0;	//그룹 번호 저장
+	EXT2_DIR_ENTRY* entry;	//디렉터리 엔트리 저장하는 포인터
+	BYTE sector = SECTOR[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
+
+	if(get_inode(_dir->fs, _dir->entry.inode, &dir_inode))	//삭제 하려는 디렉터리의아이노드 정보 읽어오기
+	{
+		if((dir_inode.mode && 0x1111000000000000) == 0x4000)	//mode 비트의 하위 9~11비트를 비교해서 디렉터리인지확인
+		{
+			if(dir_inode.links_count > 1)	//디렉터리를 가르키는 하드링크수가 1개보다 많으면, 디렉터리를 가르키는 링크가 하나 더 있다는 의미이므로 지우려는 디렉터리 엔트리만 삭제
+			{
+				//아이노드 dir_inode.links_count 하나 줄이기, 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
+				//그룹디스크립터 directories_count 변수 수정.
+			}
+			else	//하드링크가 하나연결되어 있는경우 폴더 완전 삭제를 의미
+			{
+				if(dir_inode.blocks == 0)	//디렉터리의 아이노드의 데이터 블럭이 0이라는건, 할당된 데이터 블럭이 없다는 뜻. 즉 디렉터리안에 아무것도 없으니 그냥 디렉터리 엔트리 지우면된다.
+				{
+					//아이노드 할당해제, 아이노드 비트맵 수정, 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
+					//그룹디스크립터 directories_count, free_inode_count 변수 수정.
+					//슈퍼블럭 free_inode_count 수정
+					//만약 디렉터리 엔트리를 삭제함으로서 사용하는 블럭 개수 변하면, 블럭 할당해제 및 비트맵 수정, 슈퍼블럭의 free_block_count 수정 필요
+				}
+				else	//연결된 데이터 블럭이 있으면, 그 데이터 블럭을 탐색해서 데이터 블럭 내의 모든 디렉터리 엔트리가 사용중이지 않은 상태인지 검사. 하나라도 사용중인게 있으면 에러 발생.
+				{
+					//데이터 블럭 탐색하는 함수
+					for(int i = 0; i<dir_inode.blocks ;i++)	//아이노드와 연결된 데이터 블럭을 하나씩 읽어와서 검사
+					{
+						int block_number = get_data_block_at_inode(_dir->fs, dir_inode, i);	//inode에 저장된 블럭 번호가 그룹 상대적인게 아닌, 전역으로 계산됐다고 생각.
+						for(int j = 0; j<sector_num_per_block; j++)	//데이터블럭의 섹터를 다 돌기 위해서 사용
+						{
+							data_read(_dir->fs, 0, block_number-1, sector);	//inode에 저장된 블럭번호가 전역적인 것이므로 그룹에 0을 넣음, data_read안에 구현부에 부트섹터를 생각하므로 1삭제
+							entry = (EXT2_DIR_ENTRY*) sector;	//sector의 처음을 디렉터리 엔트리 포인터에 연결
+							for(int k = 0; k<MAX_DIR_ENTRY_PER_SECTOR;k++)	//섹터에 최대로 들어갈 수 있는 디렉터리 엔트리의 개수만큼 루프를 돈다.
+							{
+								if(entry[k].name[0] == DIR_ENTRY_NO_MORE)	//루프가 돌다가 여기 온다는건, 디렉터리 엔트리 끝을 봤는데 할당되어 있는 곳 없이 끝이 났다는 것으로 깔끔하다는 것을 의미.
+								{
+								}
+								else if(entry[k].name[0] != DIR_ENTRY_FREE)	//디렉터리 엔트리가 free가 아니라는건 뭐가 차있다는 것. 에러 발생.
+								{
+									return EXT2_ERROR;
+								}
+							}
+						}
+					}
+					return EXT2_ERROR;
+				}
+			}
+		}
+		else
+		{
+			return EXT2_ERROR;	//삭제하려는게 디렉터리가 아닌 경우
+		}
+	}
+	else
+	{
+		return EXT2_ERROR;	//삭제하려는 디렉터리의 아이노드 정보 읽어오기 실패
+	}	
 }
