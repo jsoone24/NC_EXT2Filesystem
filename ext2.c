@@ -370,25 +370,45 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
 	EXT2_DIR_ENTRY*   dir;
 
-	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
+	UINT max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
 	dir = ((EXT2_DIR_ENTRY*)sector + begin);	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
 	for (UINT i = begin; i <= last; i++)
 	{
-		if (dir->name[0] == DIR_ENTRY_FREE)	//탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
-			;
-		else if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
+		if (formattedName == NULL) // 이름에 상관없이 유효한 엔트리의 위치를 찾음
 		{
+			if( dir->name[0] != DIR_ENTRY_FREE && dir->name[0] != DIR_ENTRY_NO_MORE )
+			{
+				number = i;
+				return EXT2_SUCCESS;
+			}
+		}
+		else // 찾는 이름이 설정된 경우
+		{
+			// 삭제된 엔트리나 마지막 엔트리를 찾는 경우 첫번째 바이트만 비교
+			if ( ( formattedName[0] == DIR_ENTRY_FREE || formattedName[0] == DIR_ENTRY_NO_MORE ) & ( formattedName[0] == dir->name[0] ) )
+			{
+				number = i;
+				return EXT2_SUCCESS;
+			}
+
+			if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
+			{
+				number = i;				//결과를 찾으면 number에 번호 기록후 리턴
+				return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
+			}
+		}
+
+		if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
+		{
+			number = i;
 			return -2;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나왔으므로 에러.
 		}
-		else if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
-		{
-			number = i;				//결과를 찾으면 number에 번호 기록후 리턴
-			return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
-		}
+
 		dir++;	//결과 못 찾으면 계속 돔
 	}
 
+	number = i;
 	return EXT2_ERROR;	//여기까지 오는건 다 돌았는데 못 찾는 경우이므로 EXT2_ERROR 리턴
 }
 
@@ -397,38 +417,43 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 {
 	BYTE	sector[MAX_SECTOR_SIZE];
 	UINT32	i, number;
-	UINT32	entriesPerSector, lastEntry;
+	UINT32	sectorsPerBlock;
+	UINT32	entriesPerSector, beginEntry, lastEntry;
 	INT32	result;
 	SECTOR	rootBlock;
 	EXT2_DIR_ENTRY*	entry;
 
+	sectorsPerBlock		= MAX_SECTOR_SIZE / MAX_BLOCK_SIZE; // 블록 당 섹터 수
 	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
-	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 	
-	rootBlock = get_data_block_at_inode(fs, inode, 1); // 루트 디렉터리의 첫번째 데이터블록 번호
 	read_root_sector(fs, sector); // 루트 디렉터리의 데이터블록 내용을 sector 버퍼에 write
 	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
 	
-	result = find_entry_at_sector(sector, formattedName, 0, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-
-	if( result == -1 ) // formattedName을 가진 엔트리가 없는 경우
-		return EXT2_ERROR;
-	else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
+	for (i = 0; i < sectorsPerBlock; i++) // 섹터단위로 블록 탐색
 	{
-		if( result == -2 ) // 더 이상 엔트리가 없다면 에러
-			return EXT2_ERROR;
-		else // 해당 엔트리를 찾았다면 ret에서 가리키는 EXT2_NODE를 entry 정보로 초기화
+		beginEntry = i * entriesPerSector; // 탐색할 시작 엔트리
+		lastEntry = beginEntry + entriesPerSector - 1; // 탐색할 마지막 엔트리
+		result = find_entry_at_sector(sector, formattedName, beginEntry, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+
+		if( result == -1 ) // formattedName을 가진 엔트리가 없는 경우
+			continue;
+		else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
 		{
-			memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) );
+			if( result == -2 ) // 더 이상 엔트리가 없다면 에러
+				return EXT2_ERROR;
+			else // 해당 엔트리를 찾았다면 ret에서 가리키는 EXT2_NODE를 entry 정보로 초기화
+			{
+				memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) );
 
-			ret->location.group	= 0; // ?
-			ret->location.block	= rootBlock;
-			ret->location.offset	= number; // 블록 안에서의 offset
+				ret->location.group	= GET_INODE_GROUP(2);
+				ret->location.block	= 1;
+				ret->location.offset = number; // 블록 안에서의 offset
 
-			ret->fs = fs;
+				ret->fs = fs;
+			}
+
+			return EXT2_SUCCESS;
 		}
-
-		return EXT2_SUCCESS;
 	}
 
 	return EXT2_ERROR; // 어떤 섹터에도 해당 엔트리가 없다면 에러
@@ -438,41 +463,48 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedName, EXT2_NODE* ret)
 {
 	BYTE	sector[MAX_SECTOR_SIZE];
-	UINT32	i, number;
-	UINT32	entriesPerSector, lastEntry;
+	UINT32	i, block, number; // block: inode 내에서 데이터블록의 위치 오프셋, number: 블록 내에서 formattedName을 가진 엔트리의 위치 오프셋
+	UINT32	sectorsPerBlock;
+	UINT32	entriesPerSector, beginEntry, lastEntry;
 	INT32	blockNum;
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
 
+	sectorsPerBlock		= MAX_SECTOR_SIZE / MAX_BLOCK_SIZE; // 블록 당 섹터 수
 	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
 	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 
-	for (i = 0; i < first.blocks; i++) // 데이터 블록 단위로 검색 
+	for (block = 0; block < first.blocks; block++) // 데이터 블록 단위로 검색 
 	{
-		blockNum = get_data_block_at_inode(fs, first, i); // 데이터 블록 번호 (그룹에 상관 없이 고유)
+		blockNum = get_data_block_at_inode(fs, first, block); // 데이터 블록 번호 (그룹에 상관 없이 고유)
 		data_read(fs, 0, blockNum, sector); // 데이터 블록의 데이터를 sector 버퍼에 저장
 		entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
 
-		result = find_entry_at_sector(sector, formattedName, 0, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-
-		if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
-			continue; 
-		else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
+		for (i = 0; i < sectorsPerBlock; i++) // 섹터단위로 검색
 		{
-			if( result == -2 ) // 더 이상 엔트리가 없다면 에러
-				return EXT2_ERROR;
-			else // 해당 엔트리를 찾았다면 ret에서 가리키는 FAT_NODE를 entry 정보로 초기화
+			beginEntry = i * entriesPerSector; // 탐색할 시작 엔트리
+			lastEntry = beginEntry + entriesPerSector - 1; // 탐색할 마지막 엔트리
+			result = find_entry_at_sector(sector, formattedName, beginEntry, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+
+			if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
+				continue; 
+			else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
 			{
-				memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
+				if( result == -2 ) // 더 이상 엔트리가 없다면 에러
+					return EXT2_ERROR;
+				else // 해당 엔트리를 찾았다면 ret에서 가리키는 FAT_NODE를 entry 정보로 초기화
+				{
+					memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
 
-				ret->location.group	= 0; // ?
-				ret->location.block	= blockNum;
-				ret->location.offset	= number;
+					ret->location.group	= 0; // ?
+					ret->location.block	= blockNum;
+					ret->location.offset	= number;
 
-				ret->fs = fs;
+					ret->fs = fs;
+				}
+
+				return EXT2_SUCCESS;
 			}
-
-			return EXT2_SUCCESS;
 		}
 
 	}
