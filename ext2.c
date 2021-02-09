@@ -953,6 +953,7 @@ int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry)	//파�
 	strcpy(name, entryName);
 	if (format_name(parent->fs, name) == EXT2_ERROR) return EXT2_ERROR;	//이름이 형식에 맞지 않으면 에러
 
+	/* newEntry */
 	ZeroMemory(retEntry, sizeof(EXT2_NODE));
 	memcpy(retEntry->entry.name, name, MAX_ENTRY_NAME_LENGTH);
 	retEntry->fs = parent->fs;
@@ -1108,8 +1109,10 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 // 파일 삭제
 int ext2_remove(EXT2_NODE* file)
 {
-	INODE* inodeBuffer;
-	int result;
+	INODE*	inodeBuffer;
+	BYTE	sector[MAX_SECTOR_SIZE];	// 1024Byte
+	int		result, i;
+	unsigned int num;
 
 	inodeBuffer = (INODE*)malloc(sizeof(INODE));
 	ZeroMemory(inodeBuffer, sizeof(INODE));
@@ -1117,12 +1120,28 @@ int ext2_remove(EXT2_NODE* file)
 	if (result == EXT2_ERROR)
 		return EXT2_ERROR;
 
-	if(inodeBuffer->mode & FILE_TYPE_DIR )  // 해당 엔트리가 디렉터리이면 에러 - mode에서 file type 추출해야 함
+	if( (inodeBuffer->mode & 0x1FF) && FILE_TYPE_DIR )  // 해당 엔트리가 디렉터리이면 에러
 		return EXT2_ERROR;
 
-	file->entry.name[0] = DIR_ENTRY_FREE; // 해당 엔트리의 name에 삭제된 엔트리라고 저장
-	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
-	// 또 뭐해야하지..? -할당의 역순
+	// 데이터블록 비트맵 수정
+	for (i = 0; i < inodeBuffer->blocks; i++)
+	{
+		ZeroMemory(sector, MAX_SECTOR_SIZE);
+		num = get_data_block_at_inode(file->fs, &inodeBuffer, i); // i번째 데이터블록 넘버
+
+		data_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
+		sector[num] = 0; // 비트맵 수정
+		data_write(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
+	}
+
+	// 아이노드 비트맵 수정
+	ZeroMemory(sector, MAX_SECTOR_SIZE);
+	data_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 sector 버퍼에 저장
+	sector[file->entry.inode] = 0; // 비트맵 수정
+	data_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
+
+	file->entry.name[0] = DIR_ENTRY_FREE; // 삭제된 엔트리라고 저장
+	set_entry(file->fs, file->location, file->entry); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
 
 	/*
 	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
@@ -1130,6 +1149,7 @@ int ext2_remove(EXT2_NODE* file)
 	3. 아이노드에 표시되어 있는 데이터 블록을 모두 할당 해제 했다면, 아이노드를 나온다.
 	4. 삭제할 파일의 아이노드 넘버를 알고 있으면, 아이노드가 있는 블록그룹의 아이노드 테이블에서 아이노드를 삭제하고, 아이노드 비트맵에서 사용가능이라고 표시해놓는다.
 	5. 파일과 연결된 부모 디렉터리로 가서, 파일에 대한 디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 설정하고, 다른 연결을 해제한다.
+	+) 동적할당한 것이 없기 때문에 해제하지는 않음
 	*/
 	return EXT2_SUCCESS;
 }
