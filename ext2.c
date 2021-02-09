@@ -93,7 +93,7 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 	}
 
 	node.size = MAX(currentOffset, node.size); // 새로 쓴 영역과 기존 파일의 크기 중 큰 값을 파일 크기로 설정
-	set_inode_onto_inode_table(file->fs, file->entry.inode, &node); // ???
+	set_inode_onto_inode_table(file->fs, file->entry.inode, &node); // 아이노드 테이블 업데이트
 
 	return currentOffset - offset;
 }
@@ -110,6 +110,24 @@ void process_meta_data_for_inode_used(EXT2_NODE * retEntry, UINT32 inode_num, in
 	*/
 }
 
+// 디스크의 location에 value를 기록 (eunseo)
+int set_entry( EXT2_FILESYSTEM* fs, const EXT2_DIR_ENTRY_LOCATION* location, const EXT2_DIR_ENTRY* value)
+{
+	/* value의 크기가 섹터만큼 크지 않더라도 바로 기록하면 나머지 정보들이 원하지 않는 값으로 바뀔 수 있기 때문에
+	섹터 단위로 읽어와 해당 영역만 바꿔준 후 다시 기록함 */
+	BYTE	sector[MAX_SECTOR_SIZE];
+	EXT2_DIR_ENTRY*	entry;
+
+	data_read(fs, location->group, location->block, sector); // 디스크에서 해당 위치의 정보를 sector 버퍼로 읽어옴
+
+	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
+	entry[location->offset] = *value; // 원하는 값을 기록
+
+	data_write(fs, location->group, location->block, sector); // 디스크에 sector 버퍼의 정보를 씀
+
+	return EXT2_ERROR;
+}
+
 // inode_num의 데이터 블록에 새로운 엔트리(retEntry) 추가. 성공여부 return (eunseo)
 int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
 {
@@ -118,94 +136,73 @@ int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
  	fat에서와 같이 루트 디렉토리, overwrite 등을 생각해 주어야 할 듯(빈 엔트리 찾지 못할 경우,
 	 DIR_ENTRY_NO_MORE을 나타내는 디렉토리 엔트리 추가, 위치정보 업데이트 등)
 	seungmin */
-	// overwrite인 경우는 언제 필요한지 모르겠음
+	// fileType이 overwrite인 경우는 언제 필요한지 모르겠음. 일단 고려하지 않음.
 
-	EXT2_DIR_ENTRY_LOCATION	begin;
-	EXT2_DIR_ENTRY			entry;
-	EXT2_NODE				entryNoMore;
-	INODE					node; // inode_num의 node 메타데이터
-	BYTE					entryName[2] = { 0, };
-	BYTE					sector[MAX_SECTOR_SIZE];
-	UINT32					retEntry_inode_num;
+	EXT2_NODE	entryNoMore;			// retEntry 다음 위치에 마지막 엔트리임을 나타내기 위한 노드
+	INODE* 		inodeBuffer;			// retEntry의 새로 할당 받은 아이노드에 대한 메타데이터
+	BYTE		entryName[2] = { 0, };	// 엔트리 이름을 저장하는 버퍼
+	UINT32		retEntry_inodeNum;		// retEntry의 inode number가 없을 경우 새로 할당 받은 inode number
+	DWORD		dataBlockNum;			// 새로 할당 받은 데이터 블록 넘버
 
-	begin.group = 0;
-	begin.block = 0;
-	begin.offset = 0;
-
-	if ( GET_INODE_FROM_NODE(retEntry) == 0 ) // retEntry의 inode number가 없으면 새로운 inode number 할당
+	if ( GET_INODE_FROM_NODE(retEntry) == 0 ) // retEntry의 inode number가 없으면
 	{
-		retEntry_inode_num = get_free_inode_number(retEntry->fs);
-		retEntry->entry.inode = retEntry_inode_num;
-		// inode bitmap 수정 필요
+		retEntry_inodeNum = get_free_inode_number(retEntry->fs); // 새로운 inode number 할당
+		retEntry->entry.inode = retEntry_inodeNum;
+
+		inodeBuffer = (INODE*)malloc(sizeof(INODE));
+		ZeroMemory(inodeBuffer, sizeof(INODE));
+		set_inode_onto_inode_table(retEntry->fs, retEntry->entry.inode, inodeBuffer); // 아이노드 테이블 업데이트
+
+		inodeBuffer->mode = 0x1FF | fileType; // file type 지정
+	}
+	else // retEntry의 inode number가 있으면
+	{
+		get_inode(retEntry->fs, retEntry->entry.inode, inodeBuffer); // retEntry의 아이노드 메타데이터를 inodeBuffer에 저장
+		inodeBuffer->mode = 0x1FF | fileType; // file type 지정
 	}
 
-	get_inode(retEntry->fs, inode_num, &node);
-	node.mode = 0x1FF | fileType; // node의 file type 지정
-
 	ZeroMemory( &entryNoMore, sizeof( EXT2_NODE ) ); // entryNoMore를 0으로 초기화
-	entryName[0] = DIR_ENTRY_FREE;  // 빈 엔트리를 찾아 entryNoMore에 담아옴
-	
+	entryName[0] = DIR_ENTRY_FREE;
+
+	// 빈 엔트리를 찾아 entryNoMore에 담아옴
 	if( lookup_entry( retEntry->fs, inode_num, entryName, &entryNoMore ) == EXT2_SUCCESS ) // 빈 엔트리가 있다면
 	{
-		// 블록 데이터를 읽어와서 수정 후 다시 적어줌
-		data_read(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-		entry = (EXT2_DIR_ENTRY*)sector;
-		entry[entryNoMore.location.offset] = retEntry->entry;
-		data_write(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-
+		set_entry(retEntry->fs, &entryNoMore.location, &retEntry->entry); // 이 위치에 새 엔트리 기록
 		retEntry->location = entryNoMore.location; // 위치정보 기록
 	}
 	else // 빈 엔트리가 없다면
 	{
-		// 루트 디렉터리이면서 데이터 블록에 모든 엔트리가 찼다면 (rootEntryCount 구하는 연산 재확인 필요)
-		UINT32	rootEntryCount = retEntry->location.block * ( retEntry->fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ) ) + retEntry->location.offset;
-		UINT32	entryPerSector = retEntry->fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY );
-		if ( ( inode_num == 2 ) && ( rootEntryCount >= entryPerSector ) )
-		{
-			WARNING( "Cannot insert entry into the root entry\n" );
-			return EXT2_ERROR;
-		}
-
 		// 마지막 엔트리 뒤에 새 엔트리 추가
 		entryName[0] = DIR_ENTRY_NO_MORE;
 		if ( lookup_entry( retEntry->fs, inode_num, entryName, &entryNoMore ) == EXT2_ERROR ) // 마지막 엔트리를 찾지 못하면
 			return EXT2_ERROR;
 
-		// 마지막 엔트리를 찾았다면 이 위치에 새 엔트리 기록
-		data_read(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-		entry = (EXT2_DIR_ENTRY*)sector;
-		entry[entryNoMore.location.offset] = retEntry->entry;
-		data_write(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-
+		set_entry(retEntry->fs, &entryNoMore.location, &retEntry->entry); // 마지막 엔트리를 찾았다면 이 위치에 새 엔트리 기록
 		retEntry->location = entryNoMore.location; // 위치정보 기록
 		entryNoMore.location.offset++; // 마지막 엔트리라고 저장할 위치로 이동
 
-		// 블록에 모든 엔트리가 찼다면 (미완성)
-		if ( entryNoMore.location.offset == entryPerSector )
+		// 블록에 모든 엔트리가 찼다면
+		if ( entryNoMore.location.offset == MAX_BLOCK_SIZE / sizeof( EXT2_DIR_ENTRY ) )
 		{
-			// 그 다음 블록에 저장
-			entryNoMore.location.block++;
+			if (inode_num == 2) // 루트 디렉터리이면
+			{
+				entryNoMore.location.offset--; // 기존 마지막 엔트리의 위치로 다시 이동
+				entryNoMore.entry.name[0] = DIR_ENTRY_NO_MORE; // 마지막 엔트리임을 설정하고
+				set_entry(retEntry->fs, &entryNoMore.location, &entryNoMore.entry); // 디스크에 저장
+
+				WARNING( "Cannot insert entry into the root entry\n" );
+				return EXT2_ERROR;
+			}
+
+			entryNoMore.location.block++; // 그 다음 블록에 저장
 			entryNoMore.location.offset = 0;
 
-			// 블록 그룹의 모든 데이터 블록이 찼다면
-			if( entryNoMore.location.block == retEntry->fs->sb.block_per_group )
-			{
-				// 그 다음 블록 그룹에 저장
-				entryNoMore.location.group++;
-				if (entryNoMore.location.group == 0) // 모든 블록 그룹을 다 사용했다면
-				{
-					WARNING( "No more clusters are remained\n" );
-					return EXT2_ERROR;
-				}
-				entryNoMore.location.block = 0;
-			}
+			if (expand_block(retEntry->fs, inode_num) == EXT2_ERROR) // 새로운 데이터 블록 할당
+				return EXT2_ERROR;
+			// process_meta_data_for_block_used(retEntry->fs, file->entry.inode); // ?
 		}
 	
-		// 마지막이라고 기록
-		data_read(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
-		entry = (EXT2_DIR_ENTRY*)sector;
-		entry[entryNoMore.location.offset] = entryNoMore.entry;
-		data_write(retEntry->fs, entryNoMore.location.group, entryNoMore.location.block, sector);
+		set_entry(retEntry->fs, &entryNoMore.location, &entryNoMore.entry); // 마지막이라고 기록
 	}
 
 	return EXT2_SUCCESS;
@@ -377,25 +374,45 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
 	EXT2_DIR_ENTRY*   dir;
 
-	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
+	UINT max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
 	dir = ((EXT2_DIR_ENTRY*)sector + begin);	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
 	for (UINT i = begin; i <= last; i++)
 	{
-		if (dir->name[0] == DIR_ENTRY_FREE)	//탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
-			;
-		else if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
+		if (formattedName == NULL) // 이름에 상관없이 유효한 엔트리의 위치를 찾음
 		{
+			if( dir->name[0] != DIR_ENTRY_FREE && dir->name[0] != DIR_ENTRY_NO_MORE )
+			{
+				number = i;
+				return EXT2_SUCCESS;
+			}
+		}
+		else // 찾는 이름이 설정된 경우
+		{
+			// 삭제된 엔트리나 마지막 엔트리를 찾는 경우 첫번째 바이트만 비교
+			if ( ( formattedName[0] == DIR_ENTRY_FREE || formattedName[0] == DIR_ENTRY_NO_MORE ) & ( formattedName[0] == dir->name[0] ) )
+			{
+				number = i;
+				return EXT2_SUCCESS;
+			}
+
+			if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
+			{
+				number = i;				//결과를 찾으면 number에 번호 기록후 리턴
+				return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
+			}
+		}
+
+		if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
+		{
+			number = i;
 			return -2;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나왔으므로 에러.
 		}
-		else if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
-		{
-			number = i;				//결과를 찾으면 number에 번호 기록후 리턴
-			return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
-		}
+
 		dir++;	//결과 못 찾으면 계속 돔
 	}
 
+	number = i;
 	return EXT2_ERROR;	//여기까지 오는건 다 돌았는데 못 찾는 경우이므로 EXT2_ERROR 리턴
 }
 
@@ -404,38 +421,43 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 {
 	BYTE	sector[MAX_SECTOR_SIZE];
 	UINT32	i, number;
-	UINT32	entriesPerSector, lastEntry;
+	UINT32	sectorsPerBlock;
+	UINT32	entriesPerSector, beginEntry, lastEntry;
 	INT32	result;
 	SECTOR	rootBlock;
 	EXT2_DIR_ENTRY*	entry;
 
+	sectorsPerBlock		= MAX_SECTOR_SIZE / MAX_BLOCK_SIZE; // 블록 당 섹터 수
 	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
-	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 	
-	rootBlock = get_data_block_at_inode(fs, inode, 1); // 루트 디렉터리의 첫번째 데이터블록 번호
 	read_root_sector(fs, sector); // 루트 디렉터리의 데이터블록 내용을 sector 버퍼에 write
 	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
 	
-	result = find_entry_at_sector(sector, formattedName, 0, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-
-	if( result == -1 ) // formattedName을 가진 엔트리가 없는 경우
-		return EXT2_ERROR;
-	else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
+	for (i = 0; i < sectorsPerBlock; i++) // 섹터단위로 블록 탐색
 	{
-		if( result == -2 ) // 더 이상 엔트리가 없다면 에러
-			return EXT2_ERROR;
-		else // 해당 엔트리를 찾았다면 ret에서 가리키는 EXT2_NODE를 entry 정보로 초기화
+		beginEntry = i * entriesPerSector; // 탐색할 시작 엔트리
+		lastEntry = beginEntry + entriesPerSector - 1; // 탐색할 마지막 엔트리
+		result = find_entry_at_sector(sector, formattedName, beginEntry, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+
+		if( result == -1 ) // formattedName을 가진 엔트리가 없는 경우
+			continue;
+		else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
 		{
-			memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) );
+			if( result == -2 ) // 더 이상 엔트리가 없다면 에러
+				return EXT2_ERROR;
+			else // 해당 엔트리를 찾았다면 ret에서 가리키는 EXT2_NODE를 entry 정보로 초기화
+			{
+				memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) );
 
-			ret->location.group	= 0; // ?
-			ret->location.block	= rootBlock;
-			ret->location.offset	= number; // 블록 안에서의 offset
+				ret->location.group	= GET_INODE_GROUP(2);
+				ret->location.block	= 1;
+				ret->location.offset = number; // 블록 안에서의 offset
 
-			ret->fs = fs;
+				ret->fs = fs;
+			}
+
+			return EXT2_SUCCESS;
 		}
-
-		return EXT2_SUCCESS;
 	}
 
 	return EXT2_ERROR; // 어떤 섹터에도 해당 엔트리가 없다면 에러
@@ -445,41 +467,48 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedName, EXT2_NODE* ret)
 {
 	BYTE	sector[MAX_SECTOR_SIZE];
-	UINT32	i, number;
-	UINT32	entriesPerSector, lastEntry;
+	UINT32	i, block, number; // block: inode 내에서 데이터블록의 위치 오프셋, number: 블록 내에서 formattedName을 가진 엔트리의 위치 오프셋
+	UINT32	sectorsPerBlock;
+	UINT32	entriesPerSector, beginEntry, lastEntry;
 	INT32	blockNum;
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
 
+	sectorsPerBlock		= MAX_SECTOR_SIZE / MAX_BLOCK_SIZE; // 블록 당 섹터 수
 	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
 	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 
-	for (i = 0; i < first.blocks; i++) // 데이터 블록 단위로 검색 
+	for (block = 0; block < first.blocks; block++) // 데이터 블록 단위로 검색 
 	{
-		blockNum = get_data_block_at_inode(fs, first, i); // 데이터 블록 번호 (그룹에 상관 없이 고유)
+		blockNum = get_data_block_at_inode(fs, first, block); // 데이터 블록 번호 (그룹에 상관 없이 고유)
 		data_read(fs, 0, blockNum, sector); // 데이터 블록의 데이터를 sector 버퍼에 저장
 		entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
 
-		result = find_entry_at_sector(sector, formattedName, 0, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-
-		if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
-			continue; 
-		else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
+		for (i = 0; i < sectorsPerBlock; i++) // 섹터단위로 검색
 		{
-			if( result == -2 ) // 더 이상 엔트리가 없다면 에러
-				return EXT2_ERROR;
-			else // 해당 엔트리를 찾았다면 ret에서 가리키는 FAT_NODE를 entry 정보로 초기화
+			beginEntry = i * entriesPerSector; // 탐색할 시작 엔트리
+			lastEntry = beginEntry + entriesPerSector - 1; // 탐색할 마지막 엔트리
+			result = find_entry_at_sector(sector, formattedName, beginEntry, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+
+			if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
+				continue; 
+			else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
 			{
-				memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
+				if( result == -2 ) // 더 이상 엔트리가 없다면 에러
+					return EXT2_ERROR;
+				else // 해당 엔트리를 찾았다면 ret에서 가리키는 FAT_NODE를 entry 정보로 초기화
+				{
+					memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
 
-				ret->location.group	= 0; // ?
-				ret->location.block	= blockNum;
-				ret->location.offset	= number;
+					ret->location.group	= 0; // ?
+					ret->location.block	= blockNum;
+					ret->location.offset	= number;
 
-				ret->fs = fs;
+					ret->fs = fs;
+				}
+
+				return EXT2_SUCCESS;
 			}
-
-			return EXT2_SUCCESS;
 		}
 
 	}
@@ -724,7 +753,7 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs)	//비어있는 아이노드 �
 	}
 
 	return EXT2_ERROR; //볼륨내에 할당가능한 아이노드 공간이 없음.
-}
+} // 아이노드 비트맵 업데이트도 필요 (eunseo)
 
 int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 which_inode_num_to_write, INODE * inode_to_write)	//아이노드를 아이노드 테이블에 저장하는 과정으로 생각됨
 {
@@ -993,6 +1022,7 @@ int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry)	//파�
 	strcpy(name, entryName);
 	if (format_name(parent->fs, name) == EXT2_ERROR) return EXT2_ERROR;	//이름이 형식에 맞지 않으면 에러
 
+	/* newEntry */
 	ZeroMemory(retEntry, sizeof(EXT2_NODE));
 	memcpy(retEntry->entry.name, name, MAX_ENTRY_NAME_LENGTH);
 	retEntry->fs = parent->fs;
@@ -1148,8 +1178,10 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 // 파일 삭제
 int ext2_remove(EXT2_NODE* file)
 {
-	INODE* inodeBuffer;
-	int result;
+	INODE*	inodeBuffer;
+	BYTE	sector[MAX_SECTOR_SIZE];	// 1024Byte
+	int		result, i;
+	unsigned int num;
 
 	inodeBuffer = (INODE*)malloc(sizeof(INODE));
 	ZeroMemory(inodeBuffer, sizeof(INODE));
@@ -1157,12 +1189,28 @@ int ext2_remove(EXT2_NODE* file)
 	if (result == EXT2_ERROR)
 		return EXT2_ERROR;
 
-	if(inodeBuffer->mode & FILE_TYPE_DIR )  // 해당 엔트리가 디렉터리이면 에러 - mode에서 file type 추출해야 함
+	if( (inodeBuffer->mode & 0x1FF) && FILE_TYPE_DIR )  // 해당 엔트리가 디렉터리이면 에러
 		return EXT2_ERROR;
 
-	file->entry.name[0] = DIR_ENTRY_FREE; // 해당 엔트리의 name에 삭제된 엔트리라고 저장
-	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
-	// 또 뭐해야하지..? -할당의 역순
+	// 데이터블록 비트맵 수정
+	for (i = 0; i < inodeBuffer->blocks; i++)
+	{
+		ZeroMemory(sector, MAX_SECTOR_SIZE);
+		num = get_data_block_at_inode(file->fs, &inodeBuffer, i); // i번째 데이터블록 넘버
+
+		data_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
+		sector[num] = 0; // 비트맵 수정
+		data_write(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
+	}
+
+	// 아이노드 비트맵 수정
+	ZeroMemory(sector, MAX_SECTOR_SIZE);
+	data_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 sector 버퍼에 저장
+	sector[file->entry.inode] = 0; // 비트맵 수정
+	data_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
+
+	file->entry.name[0] = DIR_ENTRY_FREE; // 삭제된 엔트리라고 저장
+	set_entry(file->fs, file->location, file->entry); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
 
 	/*
 	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
@@ -1170,6 +1218,7 @@ int ext2_remove(EXT2_NODE* file)
 	3. 아이노드에 표시되어 있는 데이터 블록을 모두 할당 해제 했다면, 아이노드를 나온다.
 	4. 삭제할 파일의 아이노드 넘버를 알고 있으면, 아이노드가 있는 블록그룹의 아이노드 테이블에서 아이노드를 삭제하고, 아이노드 비트맵에서 사용가능이라고 표시해놓는다.
 	5. 파일과 연결된 부모 디렉터리로 가서, 파일에 대한 디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 설정하고, 다른 연결을 해제한다.
+	+) 동적할당한 것이 없기 때문에 해제하지는 않음
 	*/
 	return EXT2_SUCCESS;
 }
