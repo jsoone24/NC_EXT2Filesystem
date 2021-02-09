@@ -35,6 +35,7 @@
 
 #define EXT2_ERROR				-1
 #define EXT2_SUCCESS			0
+#define inode_data_empty        -2           // 아이노드에서 가르키고 잇는 특정 데이터 블록이 비었음을 의미 by seungmin
 
 #endif
 
