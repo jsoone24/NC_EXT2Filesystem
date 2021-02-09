@@ -1203,10 +1203,12 @@ int ext2_rmdir(EXT2_NODE* dir)
  	메타 데이터 수정(free_block_count 등)
 	*/
 
-	EXT2_NODE* _dir = dir;	//EXT2_NODE 를 다른 포인터로 지정해 놓는다.
+	EXT2_NODE* _dir = dir;			//EXT2_NODE 를 다른 포인터로 지정해 놓는다.
 	INODE dir_inode;				//삭제하려는 디렉터리에 대한 아이노드 정보를 저장하는 변수
 	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;	//블럭당 섹터의 개수
-	UINT32 k = 0;	//그룹 번호 저장
+	UINT32 inode_table_group_location; //inode table 저장된 블럭 번호 저장하는 변수.
+	UINT32 inode_num_per_sector = MAX_SECTOR_SIZE/(_dir->fs->sb.inode_structure_size);	//sector에 아이노드 구조체가 몇개 들어갈 수 있는지.
+	UINT32 k = 0;			//그룹 번호 저장
 	EXT2_DIR_ENTRY* entry;	//디렉터리 엔트리 저장하는 포인터
 	BYTE sector = SECTOR[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
 
@@ -1219,14 +1221,24 @@ int ext2_rmdir(EXT2_NODE* dir)
 				//아이노드 dir_inode.links_count 하나 줄이기, 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
 				//그룹디스크립터 directories_count 변수 수정.
 			}
-			else	//하드링크가 하나연결되어 있는경우 폴더 완전 삭제를 의미
+			else	//하드링크가 하나 연결되어 있는경우 폴더 완전 삭제를 의미
 			{
 				if(dir_inode.blocks == 0)	//디렉터리의 아이노드의 데이터 블럭이 0이라는건, 할당된 데이터 블럭이 없다는 뜻. 즉 디렉터리안에 아무것도 없으니 그냥 디렉터리 엔트리 지우면된다.
 				{
-					//아이노드 할당해제, 아이노드 비트맵 수정, 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
-					//그룹디스크립터 directories_count, free_inode_count 변수 수정.
-					//슈퍼블럭 free_inode_count 수정
-					//만약 디렉터리 엔트리를 삭제함으로서 사용하는 블럭 개수 변하면, 블럭 할당해제 및 비트맵 수정, 슈퍼블럭의 free_block_count 수정 필요
+					//1. 아이노드 할당해제 -> 다른 방법은 없고 그냥 비트맵을 사용가능으로 표시함으로써 해결
+					//2. 아이노드 비트맵 수정 -> 아이노드가 속한 그룹 알아내서 그 그룹의 아이노드 비트맵 비트 사용가능 표시
+					//3. 부모디렉터리에 저장되어 있는 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
+					//4. 그룹디스크립터 directories_count, free_inode_count 변수 수정.
+					//5. 슈퍼블럭 free_inode_count 수정
+					inode_table_group_location = (_dir->entry.inode)/(_dir->fs->sb.inode_per_group);	//이 디렉터리 엔트리의 아이노드 번호가 어느 그룹에 저장되어 있는지 저장.
+					data_read(_dir->fs, inode_table_group_location, , sector);	//sector에 아이노드가 들어있는 그룹의 아이노드 비트맵 저장.
+					((INODE *)sector)[]
+					data_write(_dir->fs, inode_table_group_location, , sector);	//아이노드 비트맵 값을 바꾼 값으로 변경 후 다시 저장.
+					Zeromeory(_dir->entry.name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
+					memcpy(_dir->entry.name, DIR_ENTRY_FREE, 1);	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정 
+					((EXT2_GROUP_DESCRIPTOR *)_dir->fs->gd)[_dir->location.group].free_inodes_count++;	//그룹디스크립터의 아이노드 수 감소
+					((EXT2_GROUP_DESCRIPTOR *)_dir->fs->gd)[_dir->location.group].free_directories_count++;	//그룹 디스크립터의 디렉터리 수 감소
+					((EXT2_SUPER_BLOCK *)_dir->fs->sb).free_inode_count++;	//비어있는 아이노드 수 증가.
 				}
 				else	//연결된 데이터 블럭이 있으면, 그 데이터 블럭을 탐색해서 데이터 블럭 내의 모든 디렉터리 엔트리가 사용중이지 않은 상태인지 검사. 하나라도 사용중인게 있으면 에러 발생.
 				{
@@ -1240,8 +1252,9 @@ int ext2_rmdir(EXT2_NODE* dir)
 							entry = (EXT2_DIR_ENTRY*) sector;	//sector의 처음을 디렉터리 엔트리 포인터에 연결
 							for(int k = 0; k<MAX_DIR_ENTRY_PER_SECTOR;k++)	//섹터에 최대로 들어갈 수 있는 디렉터리 엔트리의 개수만큼 루프를 돈다.
 							{
-								if(entry[k].name[0] == DIR_ENTRY_NO_MORE)	//루프가 돌다가 여기 온다는건, 디렉터리 엔트리 끝을 봤는데 할당되어 있는 곳 없이 끝이 났다는 것으로 깔끔하다는 것을 의미.
+								if(entry[k].name[0] == DIR_ENTRY_NO_MORE)	//루프가 돌다가 여기 온다는건, 디렉터리 엔트리 끝을 봤는데 할당되어 있는 곳 없이 끝이 났다는 것으로 깔끔하다는 것을 의미. 디렉터리삭제 진행
 								{
+									
 								}
 								else if(entry[k].name[0] != DIR_ENTRY_FREE)	//디렉터리 엔트리가 free가 아니라는건 뭐가 차있다는 것. 에러 발생.
 								{
