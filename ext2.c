@@ -518,11 +518,11 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)
 // 각 블록 그룹마다 할당되는 아이노드 번호가 정해져 있다고 가정(아이노드 테이블에 저장)
 {
-	UNIT32 groupNumber;
-	UNIT32 inodeTable;
-	UNIT32 inode_per_block;
-	UNIT32 tableOffset;
-	UNIT32 blockOffset;
+	UINT32 groupNumber;
+	UINT32 inodeTable;
+	UINT32 inode_per_block;
+	UINT32 tableOffset;
+	UINT32 blockOffset;
 	BYTE sector[MAX_SECTOR_SIZE];
 
 	if (inode>fs->sb.max_inode_count)
@@ -568,17 +568,17 @@ int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector)	//루트 디렉터리에
 // inode의 number번째 데이터 블록 번호를 return
 int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
 {	
-	UNIT32 blockSize;			// 블록 크기
-	UNUT32 maxNumber;			// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수
-	UNIT32 count=12;			// 몇 번째 간접 블록인지 계산하기 위한 변수
-	UNIT32 offset;				// 간접 블록 내에서 몇 번째 블록인지
-	UNIT32 datablockPergroup;	// 그룹 당 데이터 블록 수
-	UNIT32 groupNumber;			// 블록 그룹 번호 계산
-	UNIT32 groupOffset;			// 블록 그룹 offset
+	UINT32 blockSize;			// 블록 크기
+	UINT32 maxNumber;			// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수
+	UINT32 count=12;			// 몇 번째 간접 블록인지 계산하기 위한 변수
+	UINT32 offset;				// 간접 블록 내에서 몇 번째 블록인지
+	UINT32 datablockPergroup;	// 그룹 당 데이터 블록 수
+	UINT32 groupNumber;			// 블록 그룹 번호 계산
+	UINT32 groupOffset;			// 블록 그룹 offset
 	BYTE sector[MAX_SECTOR_SIZE];
 	
-	blockSize=cal_block_size(fs->sb.log_block_size)	// 블록 크기 설정
-	UNIT32 block=(blockSize/4);						// 블록 당 가질 수 있는 번호의 수(4byte 단위임으로)
+	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 크기 설정
+	UINT32 block=(blockSize/4);						// 블록 당 가질 수 있는 번호의 수(4byte 단위임으로)
 	maxNumber=12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
 
@@ -593,7 +593,7 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 	}
 	else
 	{	
-		UNUT32 buffer=number-12;		// 간접 블록에서 몇 번째 블록인지 계산하기 위해 -12		
+		UINT32 buffer=number-12;		// 간접 블록에서 몇 번째 블록인지 계산하기 위해 -12		
 		while(1)
 		{
 			if((buffer-1)/block==0)			// 해당 간접 블록에 속할 경우
@@ -617,8 +617,8 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 		return -1;
 	}
 
-	UNIT32 temp;
-	UNIT32 *blockNumber;
+	UINT32 temp;
+	UINT32 *blockNumber;
 	for (int i=0;i<count-12;i++)
 	{	
 		block/=(blockSize/4);
@@ -1170,12 +1170,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 	//inode번호로 아이노드 테이블에서 아이노드를 가져옴. 아이노드 데이터블럭에서 가장 마지막 블럭을 비트맵에 사용중이라고 표시
 }
 
-
-/******************************************************************************/
-/* Remove file                                                                */
-/******************************************************************************/
-
-// 파일 삭제
+// Remove file (eunseo)
 int ext2_remove(EXT2_NODE* file)
 {
 	INODE*	inodeBuffer;
@@ -1222,20 +1217,71 @@ int ext2_remove(EXT2_NODE* file)
 	*/
 	return EXT2_SUCCESS;
 }
-  
-  
-  
-int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer)
+
+// Read file (eunseo) - offset부터 length만큼 읽어서 buffer에 저장
+int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char* buffer)
 {
-	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
+	BYTE	sector[MAX_SECTOR_SIZE];					// 디스크에서 섹터 단위로 읽어오기 위한 버퍼
+	DWORD	currentOffset, currentBlock, blockSeq = 0;	// currentOffset: 현재 읽고있는 offset 위치, currentBlock: 현재 읽고있는 데이터블록 번호, blockSeq: 몇번째 블록까지 읽었는지
+	DWORD	blockNumber, sectorNumber, sectorOffset;	// blockNumber: 몇번째 블록인지, sectorNumber: 블록 내에서 몇번째 섹터인지, sectorOffset: 섹터 내에서 몇번째 offset인지
+	DWORD	readEnd;
+	DWORD	blockSize, blockOffset = 0;
+	INODE	node;
+	int		sectorsPerBlock = MAX_SECTOR_SIZE / MAX_BLOCK_SIZE;
+	int i;
+
+	get_inode(file->fs, file->entry.inode, &node); // 읽을 파일의 아이노드 메타데이터를 node에 저장
+	currentBlock = node.block[0]; // 시작 블록 번호를 읽어옴
+
+	blockSize = MAX_BLOCK_SIZE;
+	blockOffset = blockSize; // 블럭 offset은 블럭 크기 단위로 증가
+	i = 1;
+	while (offset > blockOffset) // 읽고자 하는 위치에 맞게 currentBlock과 blockSeq 조정
+	{
+		currentBlock = get_data_block_at_inode(file->fs, node, ++i); // node의 i번째 데이터블록 번호
+		blockOffset += blockSize; // blockOffset 증가
+		blockSeq++; // 몇번째 블록까지 읽었는지 저장하는 변수 증가
+	}
+
+	currentOffset = offset; // 읽기 시작할 위치 offset
+	readEnd = offset + length; // 읽고자 하는 마지막 위치
+
+	while (currentOffset < readEnd) // 현재 offset이 읽고자 하는 위치보다 앞쪽인동안
+	{
+		DWORD	copyLength; // 복사할 데이터의 Byte단위 길이
+
+		blockNumber = currentOffset / (file->fs->disk->bytesPerSector * sectorsPerBlock); // 현재 offset이 몇번째 블록인지 계산
+		if (blockSeq != blockNumber) // 다음 블록으로 넘어갔다면
+		{
+			blockSeq++; // 몇번째 블록까지 읽었는지 저장하는 변수 증가
+			++i;
+			currentBlock = get_data_block_at_inode(file->fs, node, i); // 다음 블록으로 currentBlock을 변경
+		}
+		sectorNumber	= (currentOffset / file->fs->disk->bytesPerSector) % sectorsPerBlock; // 블록 내에서 몇번째 섹터인지 계산
+		sectorOffset	= currentOffset % file->fs->disk->bytesPerSector; // 섹터 내에서 몇번째 offset인지 계산
+
+		if ( data_read(file->fs, GET_INODE_GROUP(file->entry.inode), currentBlock, sector) ) // 계산한 위치의 데이터를 섹터단위로 읽음
+			break;
+
+		// 현재 읽어야 할 데이터가 마지막 데이터인지 판단. 마지막 데이터가 아니면 전자, 마지막 데이터이면 후자
+		copyLength = MIN(file->fs->disk->bytesPerSector - sectorOffset, readEnd - currentOffset); // 다음 루프에서 버퍼로 복사할 크기
+
+		memcpy(buffer, &sector[sectorOffset], copyLength); // 디스크에서 읽어온 데이터를 copyLength만큼 buffer에 복사
+
+		buffer += copyLength; // 다음 데이터를 저장할 위치로 이동
+		currentOffset += copyLength; // 다음 데이터를 읽기 위해 offset 조정
+	}
+
+	return currentOffset - offset; // 읽은 바이트 수 리턴
 }
 
+// Unmount file system
 void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs)
 {
 	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
 }
-  
-  
+
+// Check disk usage
 int ext2_df(EXT2_FILESYSTEM* fs, unsigned int total, unsigned int used) 
 {
 	/*
@@ -1244,6 +1290,7 @@ int ext2_df(EXT2_FILESYSTEM* fs, unsigned int total, unsigned int used)
 	*/
 }
 
+// Remove directory
 int ext2_rmdir(EXT2_NODE* dir)
 {
 	/*
