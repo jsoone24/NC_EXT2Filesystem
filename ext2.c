@@ -153,12 +153,14 @@ int insert_entry(UINT32 inode_num, EXT2_NODE * retEntry, int fileType)
 		ZeroMemory(inodeBuffer, sizeof(INODE));
 		set_inode_onto_inode_table(retEntry->fs, retEntry->entry.inode, inodeBuffer); // 아이노드 테이블 업데이트
 
-		inodeBuffer->mode = 0x1FF | fileType; // file type 지정
+		inodeBuffer->mode &= 0x0FFF;
+		inodeBuffer->mode |= fileType; // file type 지정
 	}
 	else // retEntry의 inode number가 있으면
 	{
 		get_inode(retEntry->fs, retEntry->entry.inode, inodeBuffer); // retEntry의 아이노드 메타데이터를 inodeBuffer에 저장
-		inodeBuffer->mode = 0x1FF | fileType; // file type 지정
+		inodeBuffer->mode &= 0x0FFF;
+		inodeBuffer->mode |= fileType; // file type 지정
 	}
 
 	ZeroMemory( &entryNoMore, sizeof( EXT2_NODE ) ); // entryNoMore를 0으로 초기화
@@ -1129,6 +1131,7 @@ int ext2_format(DISK_OPERATIONS* disk)	//디스크를 ext2파일 시스템으로
 	for (i = 4; i < sb.first_data_block_each_group; i++)
 		disk->write_sector(disk, BOOT_SECTOR_BASE + i, sector);
 
+	// another group
 	for (gi = 1; gi < NUMBER_OF_GROUPS; gi++)
 	{
 		sb.block_group_number = gi;
@@ -1477,6 +1480,7 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb)	//루트 디렉터
 	for (gi = 0; gi < NUMBER_OF_GROUPS; gi++)
 		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + 1, sector);
 
+	// data block bitmap
 	disk->read_sector(disk, BOOT_SECTOR_BASE + 2, sector);
 	sector[2] |= 0x02;
 	disk->write_sector(disk, BOOT_SECTOR_BASE + 2, sector);
@@ -1533,8 +1537,9 @@ int ext2_remove(EXT2_NODE* file)
 	INODE*	inodeBuffer;
 	BYTE	sector[MAX_SECTOR_SIZE];	// 1024Byte
 	int		result, i;
-	unsigned int num;
-	unsigned short fileTypeMask = 0x1FF;
+	UINT32	num, offset;				// num: 데이터블록 넘버, offset: 섹터 내에서 데이터블록 오프셋
+	UINT16	mask;
+	unsigned short fileTypeMask = 0xF000;
 
 	inodeBuffer = (INODE*)malloc(sizeof(INODE));
 	ZeroMemory(inodeBuffer, sizeof(INODE));
@@ -1552,24 +1557,29 @@ int ext2_remove(EXT2_NODE* file)
 		num = get_data_block_at_inode(file->fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
 		data_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
-		sector[num] = 0; // 비트맵 수정
+		offset = (num+1) % 8; // 섹터 내의 offset 계산
+		mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
+		sector[num/8] &= mask; // 비트맵 수정
 		data_write(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
 	}
 
 	// 아이노드 비트맵 수정
 	ZeroMemory(sector, MAX_SECTOR_SIZE);
 	data_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 sector 버퍼에 저장
-	sector[file->entry.inode] = 0; // 비트맵 수정
+	offset = (file->entry.inode+1) % 8; // 섹터 내의 offset 계산
+	mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
+	sector[file->entry.inode/8] &= mask; // 비트맵 수정
 	data_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
-	file->entry.name[0] = DIR_ENTRY_FREE; // 삭제된 엔트리라고 저장
-	set_entry(file->fs, &file->location, &file->entry); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
-
-	// 해제된 데이터블럭 0으로 초기화
+	// 해제된 아이노드 데이터블럭 0으로 초기화
 	for (i = 0; i < EXT2_N_BLOCKS; i++)
 	{
 		inodeBuffer->block[i] = 0;
 	}
+
+	// 삭제된 엔트리라고 저장
+	file->entry.name[0] = DIR_ENTRY_FREE;
+	set_entry(file->fs, &file->location, &file->entry);
 
 	/*
 	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
