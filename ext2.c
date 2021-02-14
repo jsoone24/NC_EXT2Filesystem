@@ -223,12 +223,12 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM * fs, UINT32 inode_num)
 	UINT32 result, inode_which_block_group;	//result : 사용가능한 블록 번호를 저장할 변수, inode_which_block_group : 인자로 받은 아이노드가 어느 블록 그룹에 있는지
 	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;	//블럭당 섹터의 개수
 	UINT32 k = 0;	//그룹 번호 저장
-	BYTE sector = SECTOR[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
+	BYTE sector[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
 	const SECTOR BOOT_BLOCK = 1;	//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
 	EXT2_FILESYSTEM* _fs = fs;
 	EXT2_GROUP_DESCRIPTOR* gdp;	//group descriptor pointer라는 뜻
 
-	gdp = (EXT2_GROUP_DESCRIPTOR*)_fs->gd;
+	gdp = (EXT2_GROUP_DESCRIPTOR*)_fs->gd; // error - cannot convert to a pointer type
 
 	if(_fs->sb.free_block_count)	//슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
@@ -361,10 +361,13 @@ int format_name(EXT2_FILESYSTEM* fs, char* name)	//파일 이름의 형식이 �
 */
 int lookup_entry(EXT2_FILESYSTEM* fs, const int inode, const char* name, EXT2_NODE* retEntry)
 {
+	INODE	inodeBuffer;
+	get_inode(fs, inode, &inodeBuffer);
+
 	if (inode == 2) // 루트 디렉터리
-		return find_entry_on_root(fs, inode, name, retEntry);
+		return find_entry_on_root(fs, inodeBuffer, name, retEntry);
 	else
-		return find_entry_on_data(fs, inode, name, retEntry);
+		return find_entry_on_data(fs, inodeBuffer, name, retEntry);
 }
 
 // 섹터(데이터 블록)에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
@@ -373,11 +376,12 @@ int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 b
 	// 섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
 	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
 	EXT2_DIR_ENTRY*   dir;
+	UINT	i;
 
 	UINT max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
 	dir = ((EXT2_DIR_ENTRY*)sector + begin);	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
-	for (UINT i = begin; i <= last; i++)
+	for (i = begin; i <= last; i++)
 	{
 		if (formattedName == NULL) // 이름에 상관없이 유효한 엔트리의 위치를 찾음
 		{
@@ -532,7 +536,7 @@ int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE *inodeBuffer)
 	}
 
 	groupNumber = (inode-1)/fs->sb.inode_per_group;	// 해당 아이노드가 속해있는 블록그룹의 번호 계산(-1은 아이노드의 인덱스가 1부터 시작하기 때문)
-	inodeTable = fs->sb.start_block_of_inode_table -1;
+	inodeTable = fs->gd.start_block_of_inode_table -1;
 	// 해당 블록그룹에서의 아이노드 테이블 시작 위치 -> 수퍼블록에 들어있는 아이노드 테이블의 시작 블록(offset 개념) - 1
 	/* 각각의 블록그룹마다 1 block의 수퍼블록, n block의 group_descriptor_table, 1 block의 blcok_bitmap, 1 block의 inode_bitmap을 가지고 있다
 	   이 때 group_descriptor_table의 크기는 모두 동일할 것임으로 start_block_of_inode_table을 n+3으로 set해서 offset으로 사용(부트섹터는 data_read에서 더해줌)*/
@@ -692,7 +696,7 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs)	//비어있는 아이노드 �
 	EXT2_GROUP_DESCRIPTOR* gdp;	//group descriptor pointer라는 뜻
 	EXT2_FILESYSTEM* _fs = fs;
 	UINT32 result;
-	BYTE sector = SECTOR[MAX_SECTOR_SIZE];	//아이노드 비트맵을 가져와서 저장할 공간.
+	BYTE sector[MAX_SECTOR_SIZE];	//아이노드 비트맵을 가져와서 저장할 공간.
 	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;			//블럭당 섹터의 개수
 	UINT32 k = 0;	//블럭 그룹 번호 저장
 
@@ -1191,7 +1195,7 @@ int ext2_remove(EXT2_NODE* file)
 	for (i = 0; i < inodeBuffer->blocks; i++)
 	{
 		ZeroMemory(sector, MAX_SECTOR_SIZE);
-		num = get_data_block_at_inode(file->fs, &inodeBuffer, i); // i번째 데이터블록 넘버
+		num = get_data_block_at_inode(file->fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
 		data_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
 		sector[num] = 0; // 비트맵 수정
@@ -1205,7 +1209,7 @@ int ext2_remove(EXT2_NODE* file)
 	data_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	file->entry.name[0] = DIR_ENTRY_FREE; // 삭제된 엔트리라고 저장
-	set_entry(file->fs, file->location, file->entry); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
+	set_entry(file->fs, &file->location, &file->entry); // 디스크의 해당 엔트리의 위치에 변경된 정보 저장
 
 	/*
 	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
