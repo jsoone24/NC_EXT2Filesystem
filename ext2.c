@@ -1220,6 +1220,13 @@ int ext2_rmdir(EXT2_NODE* dir)
 			{
 				//아이노드 dir_inode.links_count 하나 줄이기, 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
 				//그룹디스크립터 directories_count 변수 수정.
+				k = (_dir->entry.inode)/(_dir->fs->sb.inode_per_group);	//아이노드 번호를 그룹당 아이노드 개수로 나누어서 아이노드 속한 그룹 알아냄.
+				inode_table_group_location = (EXT2_GROUP_DESCRIPTOR *)(_dir->fs->gd)[k].start_block_of_inode_table;	//아이노드 테이블이 저장된 곳의 블럭 번호를 불러옴
+				data_read(_dir->fs, inode_table_group_location, MAX_SECTOR_SIZE, sector);	//sector에 아이노드가 들어있는 그룹의 아이노드 비트맵 저장.
+				((INODE *)sector)[]
+				data_write(_dir->fs, inode_table_group_location, , sector);	//아이노드 비트맵 값을 바꾼 값으로 변경 후 다시 저장.
+				(EXT2_GROUP_DESCRIPTOR *)(_dir->fs->gd)[k].directories_count--;
+
 			}
 			else	//하드링크가 하나 연결되어 있는경우 폴더 완전 삭제를 의미
 			{
@@ -1231,13 +1238,13 @@ int ext2_rmdir(EXT2_NODE* dir)
 					//4. 그룹디스크립터 directories_count, free_inode_count 변수 수정.
 					//5. 슈퍼블럭 free_inode_count 수정
 					inode_table_group_location = (_dir->entry.inode)/(_dir->fs->sb.inode_per_group);	//이 디렉터리 엔트리의 아이노드 번호가 어느 그룹에 저장되어 있는지 저장.
-					data_read(_dir->fs, inode_table_group_location, , sector);	//sector에 아이노드가 들어있는 그룹의 아이노드 비트맵 저장.
+					data_read(_dir->fs, inode_table_group_location, MAX_SECTOR_SIZE, sector);	//sector에 아이노드가 들어있는 그룹의 아이노드 비트맵 저장.
 					((INODE *)sector)[]
 					data_write(_dir->fs, inode_table_group_location, , sector);	//아이노드 비트맵 값을 바꾼 값으로 변경 후 다시 저장.
 					Zeromeory(_dir->entry.name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
 					memcpy(_dir->entry.name, DIR_ENTRY_FREE, 1);	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정 
 					((EXT2_GROUP_DESCRIPTOR *)_dir->fs->gd)[_dir->location.group].free_inodes_count++;	//그룹디스크립터의 아이노드 수 감소
-					((EXT2_GROUP_DESCRIPTOR *)_dir->fs->gd)[_dir->location.group].free_directories_count++;	//그룹 디스크립터의 디렉터리 수 감소
+					((EXT2_GROUP_DESCRIPTOR *)_dir->fs->gd)[_dir->location.group].directories_count--;	//그룹 디스크립터의 디렉터리 수 감소
 					((EXT2_SUPER_BLOCK *)_dir->fs->sb).free_inode_count++;	//비어있는 아이노드 수 증가.
 				}
 				else	//연결된 데이터 블럭이 있으면, 그 데이터 블럭을 탐색해서 데이터 블럭 내의 모든 디렉터리 엔트리가 사용중이지 않은 상태인지 검사. 하나라도 사용중인게 있으면 에러 발생.
@@ -1254,7 +1261,6 @@ int ext2_rmdir(EXT2_NODE* dir)
 							{
 								if(entry[k].name[0] == DIR_ENTRY_NO_MORE)	//루프가 돌다가 여기 온다는건, 디렉터리 엔트리 끝을 봤는데 할당되어 있는 곳 없이 끝이 났다는 것으로 깔끔하다는 것을 의미. 디렉터리삭제 진행
 								{
-									
 								}
 								else if(entry[k].name[0] != DIR_ENTRY_FREE)	//디렉터리 엔트리가 free가 아니라는건 뭐가 차있다는 것. 에러 발생.
 								{
