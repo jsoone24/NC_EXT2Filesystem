@@ -421,7 +421,7 @@ int fs_mkdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENT
 
 
 
-int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int total, unsigned int used)
+int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int * total, unsigned int * used)
 {
 	/*
 	shell.c의 shell_cmd_df에서는 free sectors, used sectors 출력
@@ -429,6 +429,10 @@ int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int tot
  	두 번째 인자로 받은 SHELL_FS_OPERATIONS의 pdata는 EXT2_FILESYSTEM을 가르키고 있음    
 	-> ext2_df를 호출하면서 인자로는 이 EXT2_FILESYSTEM과 total, used를 넘겨줌
 	*/
+
+	EXT2_NODE	entry;
+
+	return ext2_df( FSOPRS_TO_EXT2FS( fsOprs ), total, used);
 }
 
 int fs_rmdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* parent, const char* name)
