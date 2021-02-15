@@ -184,15 +184,8 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 }
 
 // (구현X) mount 해제
-
 void fs_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs)
 {
-	if( fsOprs && fsOprs->pdata ) // 함수 오퍼레이션이 지정되 있고, pdata가 존재한다면 - 마운트 되어 있다면 
-		{ 
-			ext2_umount(FSOPRS_TO_EXT2FS(fsOprs)); 
-			free( fsOprs->pdata ); // pdata(EXT_FILESYSTEM - 디스크 메모리 포함) 할당 해제 
-			fsOprs->pdata = 0; // 0으로 초기화 
-		} 
 	return;
 }
 
