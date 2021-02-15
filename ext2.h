@@ -184,7 +184,7 @@ UINT32 expand_block(EXT2_FILESYSTEM * , UINT32 );									//????
 int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);										//메모리 어떤 곳에 슈퍼블록 내용을 채워넣는 함수
 int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR * gd, EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);	//메모리 어떤 곳에 파일디스크립터 내용을 채워넣는 함수
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb);						//루트 디렉터리를 생성하는 함수
-void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num);		//
+void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num, UINT32 select);		//
 
 typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*, void*, EXT2_NODE*);
 //디렉토리 엔트리정보를 읽어 리스트로 계속 뒤에 추가하는 함수. EXT2_NODE 내부의 fs, entry필드에 연결해야하는 디렉터리 엔트리에 대한 정보가 담겨서 들어온다.
