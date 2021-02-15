@@ -6,5 +6,3 @@ all: $(SHELLOBJS)
 clean:
 	rm *.o
 	rm shell
-
-hi
