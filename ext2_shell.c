@@ -132,17 +132,17 @@ int fs_format(DISK_OPERATIONS* disk, void* param)
 static SHELL_FILE_OPERATIONS g_file =
 {
 	fs_create,
-	fs_remove,
-	fs_read,
+	NULL,
+	NULL,
 	fs_write
 };
 
 static SHELL_FS_OPERATIONS   g_fsOprs =
 {
 	fs_read_dir,
-	fs_stat,
+	NULL,
 	fs_mkdir,
-	fs_rmdir,
+	NULL,
 	fs_lookup,
 	&g_file,
 	NULL
@@ -210,16 +210,6 @@ int adder(EXT2_FILESYSTEM* fs, void* list, EXT2_NODE* entry)
 	return EXT2_SUCCESS;
 }
 
-// 파일 읽기
-int	fs_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer)
-{
-	EXT2_NODE EXT2Entry;
-
-	shell_entry_to_ext2_entry(entry, &EXT2Entry); // EXT2_ENTRY로 변환
-	
-	return ext2_read(&EXT2Entry, offset, length, buffer); // (ext2.c) offset 위치부터 length만큼 buffer로 읽어옴
-}
-
 // 파일 쓰기
 int fs_write(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, const char* buffer)
 {
@@ -251,6 +241,7 @@ int	fs_create(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	return result;
 }
+
 
 // 파일 삭제
 int fs_remove(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, const char* name)
