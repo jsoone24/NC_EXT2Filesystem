@@ -462,7 +462,7 @@ int find_entry_on_data(EXT2_FILESYSTEM *fs, INODE first, const BYTE *formattedNa
 {
 	BYTE	sector[MAX_SECTOR_SIZE];	// 엔트리를 저장하는 섹터
 	UINT32	i, block, number;			// block: inode 내에서 데이터블록의 위치 오프셋, number: 블록 내에서 formattedName을 가진 엔트리의 위치 오프셋
-	UINT32	sectorsPerBlock, entriesPerBlock;
+	UINT32	sectorsPerBlock;
 	UINT32	entriesPerSector, beginEntry, lastEntry;	// beginEntry: 탐색할 시작 엔트리, lastEntry: 탐색할 마지막 엔트리
 	INT32	blockNum;					// 데이터 블록 번호 (그룹에 상관 없이 고유)
 	INT32	result;
@@ -470,26 +470,24 @@ int find_entry_on_data(EXT2_FILESYSTEM *fs, INODE first, const BYTE *formattedNa
 
 	sectorsPerBlock		= MAX_SECTOR_SIZE / MAX_BLOCK_SIZE; // 블록 당 섹터 수
 	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
-	entriesPerBlock		= MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); // 블록 당 엔트리 수
 	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
 
 	for (block = 0; block < first.blocks; block++) // 데이터 블록 단위로 검색 
 	{
 		blockNum = get_data_block_at_inode(fs, first, block); // 데이터 블록 번호 (그룹에 상관 없이 고유)
 
-		for (i = 0; i < sectorsPerBlock; i++) // 블록 내부 검색
+		for (i = 0; i < sectorsPerBlock; i++) // 섹터단위로 검색
 		{
-			UINT32	blockSize; // 블록 사이즈
-			UINT32	sectorCount; // 한 블록 안에 몇 개의 섹터가 들어있는지
+			UINT32 blockSize; // 블록 사이즈
+			UINT32 sectorCount; // 한 블록 안에 몇 개의 섹터가 들어있는지
 			blockSize = cal_block_size(fs->sb.log_block_size); // 블록 사이즈 계산
-			sectorCount = blockSize / MAX_SECTOR_SIZE; // 블록 당 섹터 수 계산
-			UINT32	sectorOffset = blockNum * blockSize + i;
+			sectorCount = blockSize / MAX_SECTOR_SIZE; // 블록 당 섹터수 계산 = fs->sb.log_block_size
 
-			data_read(fs, 0, sectorOffset, sector); // 데이터 블록의 데이터를 sector 버퍼에 저장
+			data_read(fs, 0, blockNum * blockSize + i * sectorCount, sector); // 데이터 블록의 데이터를 sector 버퍼에 저장
 			entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
 
-			beginEntry = i * entriesPerBlock; // 탐색할 시작 엔트리
-			lastEntry = beginEntry + entriesPerBlock - 1; // 탐색할 마지막 엔트리
+			beginEntry = i * entriesPerSector; // 탐색할 시작 엔트리
+			lastEntry = beginEntry + entriesPerSector - 1; // 탐색할 마지막 엔트리
 			result = find_entry_at_sector(sector, formattedName, beginEntry, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 
 			if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
@@ -502,7 +500,7 @@ int find_entry_on_data(EXT2_FILESYSTEM *fs, INODE first, const BYTE *formattedNa
 				{
 					memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
 
-					ret->location.group	= 0; // ?
+					ret->location.group	= 0;
 					ret->location.block	= blockNum;
 					ret->location.offset	= number;
 
