@@ -575,7 +575,7 @@ int block_read(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, unsi
 
 	for (int i=0;i<sectorCount;i++)
 	{
-		if(data_read(fs, group, (block*sectorCount)+i, &(blockBuffer[MAX_SECTOR_SIZE*i])))
+		if(data_read(fs, group, ((block*sectorCount)+i), &(blockBuffer[MAX_SECTOR_SIZE*i])))
 		{																	
 			printf("Read failed\n");
 			return EXT2_ERROR;
@@ -594,7 +594,7 @@ int block_write(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, uns
 
 	for (int i=0;i<sectorCount;i++)
 	{
-		if(data_write(fs, group, (block*sectorCount)+i, &(blockBuffer[MAX_SECTOR_SIZE*i])))
+		if(data_write(fs, group, ((block*sectorCount)+i), &(blockBuffer[MAX_SECTOR_SIZE*i])))
 		{																	
 			printf("Write failed\n");
 			return EXT2_ERROR;
@@ -1042,17 +1042,29 @@ int meta_write(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR block, BYTE *sector) //
 
 	return fs->disk->write_sector(fs->disk, real_index, sector);
 }
-int data_read(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR block, BYTE *sector)
+int data_read(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR sectorNum, BYTE *sector)
 {
+	UINT32 blockSize;							// 블록 사이즈
+	UINT32 sectorCount;							// 한 블록 안에 몇 개의 섹터가 들어있는지
 	const SECTOR BOOT_BLOCK = 1;
-	SECTOR real_index = BOOT_BLOCK + group * fs->sb.block_per_group + block;
+
+	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 사이즈 계산
+	sectorCount=blockSize/MAX_SECTOR_SIZE;				// 블록 당 섹터 수 계산
+	
+	SECTOR real_index = ((BOOT_BLOCK + (group * fs->sb.block_per_group))*sectorCount) + sectorNum;
 
 	return fs->disk->read_sector(fs->disk, real_index, sector); // 성공 여부 리턴 (disksim.c -> disksim_read)
 }
-int data_write(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR block, BYTE *sector) // 디스크의 데이터 블록에 작성
+int data_write(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR sectorNum, BYTE *sector) // 디스크의 데이터 블록에 작성
 {
+	UINT32 blockSize;							// 블록 사이즈
+	UINT32 sectorCount;							// 한 블록 안에 몇 개의 섹터가 들어있는지
 	const SECTOR BOOT_BLOCK = 1;
-	SECTOR real_index = BOOT_BLOCK + group * fs->sb.block_per_group + block;
+
+	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 사이즈 계산
+	sectorCount=blockSize/MAX_SECTOR_SIZE;				// 블록 당 섹터 수 계산
+	
+	SECTOR real_index = ((BOOT_BLOCK + (group * fs->sb.block_per_group))*sectorCount) + sectorNum;
 
 	return fs->disk->write_sector(fs->disk, real_index, sector); // 성공 여부 리턴 (disksim.c -> disksim_write)
 }
