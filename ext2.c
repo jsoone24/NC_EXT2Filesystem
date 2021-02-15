@@ -1186,12 +1186,16 @@ void ext2_umount(DISK_OPERATIONS * disk, SHELL_FS_OPERATIONS * fsOprs)
 	//함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_umount와 맞춰놓음
 }
 
-int ext2_df(EXT2_FILESYSTEM *fs, unsigned int total, unsigned int used)
+int ext2_df(EXT2_FILESYSTEM *fs, unsigned int * total, unsigned int * used)
 {
 	/*
 	EXT2_FILESYSTEM의 EXT2_SUPER_BLOCK 필드에서 block_count와 block_count-free_block_count를 
 	각각 total과 used에 저장(블록사이즈=섹터사이즈라 그냥 넣어도 될 듯)
 	*/
+	*total = fs->sb.block_count;
+	*used = *total - fs->sb.free_block_count;
+
+	return EXT2_SUCCESS;
 }
 
 int ext2_rmdir(EXT2_NODE *dir)
