@@ -132,8 +132,8 @@ int fs_format(DISK_OPERATIONS* disk, void* param)
 static SHELL_FILE_OPERATIONS g_file =
 {
 	fs_create,
-	NULL,
-	NULL,
+	fs_remove,
+	fs_read,
 	fs_write
 };
 
@@ -142,7 +142,7 @@ static SHELL_FS_OPERATIONS   g_fsOprs =
 	fs_read_dir,
 	fs_stat,
 	fs_mkdir,
-	NULL,
+	fs_rmdir,
 	fs_lookup,
 	&g_file,
 	NULL
@@ -184,8 +184,15 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 }
 
 // (구현X) mount 해제
+
 void fs_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs)
 {
+	if( fsOprs && fsOprs->pdata ) // 함수 오퍼레이션이 지정되 있고, pdata가 존재한다면 - 마운트 되어 있다면 
+		{ 
+			ext2_umount(FSOPRS_TO_EXT2FS(fsOprs)); 
+			free( fsOprs->pdata ); // pdata(EXT_FILESYSTEM - 디스크 메모리 포함) 할당 해제 
+			fsOprs->pdata = 0; // 0으로 초기화 
+		} 
 	return;
 }
 
@@ -208,6 +215,16 @@ int adder(EXT2_FILESYSTEM* fs, void* list, EXT2_NODE* entry)
 	add_entry_list(entryList, &newEntry); // ENTRY_LIST에 추가 (entrylist.c)
 
 	return EXT2_SUCCESS;
+}
+
+// 파일 읽기
+int	fs_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer)
+{
+	EXT2_NODE EXT2Entry;
+
+	shell_entry_to_ext2_entry(entry, &EXT2Entry); // EXT2_ENTRY로 변환
+	
+	return ext2_read(&EXT2Entry, offset, length, buffer); // (ext2.c) offset 위치부터 length만큼 buffer로 읽어옴
 }
 
 // 파일 쓰기
@@ -241,7 +258,6 @@ int	fs_create(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	return result;
 }
-
 
 // 파일 삭제
 int fs_remove(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, const char* name)
