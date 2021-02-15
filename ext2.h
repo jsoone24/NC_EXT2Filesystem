@@ -136,6 +136,18 @@ typedef struct
 	DISK_OPERATIONS*		disk;		//디스크 동작에 대한 것 disk.h 에 있다.
 } EXT2_FILESYSTEM;						//이 구조체 하나가 블록 그룹 하나를 지칭 할 것으로 예상됨
 
+/*
+그룹 디스크립터 테이블 어떻게 할건지? 아래대로 한다면?
+나비효과 : init 함수 수정 format 함수 수정, 바로 위 구조체 수정, datablock 숫자 위치, ext_2.c 파일 대거 수정 예상
+긍정적 효과 : 실제 ext2와 비슷해진다.
+
+선언
+EXT2_GROUP_DESCRIPTOR_TABLE*	gdt;
+gdt = (EXT2_GROUP_DESCRIPTOR_TABLE*)malloc(sizeof(EXT2_GROUP_DESCRIPTOR)*NUMBER_OF_GROUPS);
+
+사용법 예시
+gdt[fs->sb.block_group_number].free_blocks_count;
+*/
 typedef struct
 {
 	UINT32 group;						//디렉터리 엔트리가 저장되어있는 블록 그룹의 번호
