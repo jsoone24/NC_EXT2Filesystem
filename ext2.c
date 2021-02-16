@@ -880,7 +880,7 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 	UINT32 groupNumber;			// 해당 아이노드의 블록 그룹 번호
 	UINT32 groupOffset;			// 해당 아이노드의 그룹 내 offset(블록 단위)
 	UINT32 blockOffset;			// 해당 아이노드의 블록 내 offset(아이노드 단위)
-	BYTE blockBuffer[cal_block_size(fs->sb.log_block_size)];			// 블록을 저장할 버퍼
+	BYTE blockBuffer[MAX_BLOCK_SIZE];			// 블록을 저장할 버퍼
 
 	if (inode_num>fs->sb.max_inode_count||inode_num<1)
 	{
@@ -892,7 +892,7 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 	{
 		return EXT2_ERROR;
 	}
-	ZeroMemory(blockBuffer, cal_block_size(fs->sb.log_block_size));								// 버퍼 초기화
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);								// 버퍼 초기화
 	if(block_read(fs, groupNumber, groupOffset, blockBuffer))							// 해당 아이노드가 속해 있는 블록을 읽어옴
 	{
 		return EXT2_ERROR;
@@ -1243,7 +1243,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		return EXT2_ERROR;
 	}
 
-	ZeroMemory(blockBuffer, cal_block_size(fs->sb.log_block_size));	
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);	
 	if(block_read(fs, groupNumber, groupOffset, blockBuffer))							// 해당 아이노드가 속한 블록 읽어서 blockBuffer에 저장
 	{
 		return EXT2_ERROR;
@@ -1758,7 +1758,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 				//디렉터리엔트리 수정: 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
 				ZeroMemory(block, MAX_BLOCK_SIZE);	//담아올 블럭 공간 초기화
 				block_read(_dir->fs, _dir->location.group, _dir->location.block, block);					//디렉터리 엔트리 수정위해 디렉터리 엔트리 들어있는 블럭 읽어옴
-				Zeromeory(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
+				ZeroMemory(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
 				memcpy(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, DIR_ENTRY_FREE, sizeof(DIR_ENTRY_FREE));	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);					//디렉터리 엔트리 값을 바꾸고 저장.
 
@@ -1771,7 +1771,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 
 				if (dir_inode.blocks == 1) //연결된 데이터 블럭이 있으면, 그 데이터 블럭을 탐색해서 데이터 블럭 내의 모든 디렉터리 엔트리가 사용중이지 않은 상태인지 검사. 하나라도 사용중인게 있으면 에러 발생.
 				{
-					ext2_read_dir(_dir, EXT2_NODE_ADD, entry); //adder 어디서 찾냐; entry에 잘 담겨 온다고 가정
+					// ext2_read_dir(_dir, EXT2_NODE_ADD, entry); //adder 어디서 찾냐; entry에 잘 담겨 온다고 가정
 					for(i = 0; (i < entry_num_per_block) && (entry[i].name[0] != DIR_ENTRY_NO_MORE); i++)
 					{
 						if (entry[i].name[0] != DIR_ENTRY_FREE) //디렉터리 엔트리가 free가 아니라는건 뭐가 차있다는 것. 에러 발생.
@@ -1798,7 +1798,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 				//디렉터리 엔트리 수정: 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
 				ZeroMemory(block, MAX_BLOCK_SIZE);
 				block_read(_dir->fs, _dir->location.group, _dir->location.block, block); //sector에 디렉터리 엔트리가 들어있는 블럭 저장.
-				Zeromeory(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
+				ZeroMemory(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
 				memcpy(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, DIR_ENTRY_FREE, sizeof(DIR_ENTRY_FREE));	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block); //디렉터리 엔트리 값을 바꾸고 저장.
 
