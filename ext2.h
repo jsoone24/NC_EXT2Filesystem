@@ -51,7 +51,6 @@
 
 
 #define cal_inode_per_block(x) (x == 0 ? 8 : (x==1 ? 16 : 32))
-#define cal_block_size(x) (x == 0 ? 1024 : (x==1 ? 2048 : 4096))
 
 
 
