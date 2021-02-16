@@ -923,14 +923,14 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 // 디렉터리의 엔트리들을 리스트에 담음
 int ext2_read_dir(EXT2_NODE *dir, EXT2_NODE_ADD adder, void *list)
 {
-	BYTE sector[MAX_SECTOR_SIZE];
+	BYTE sector[MAX_BLOCK_SIZE];		// MAX_SECTOR_SIZE -> MAX_BLOCK_SIZE	by seungmin
 	INODE *inodeBuffer;
 	UINT32 inode;
 	int i, result, num;
 
 	inodeBuffer = (INODE *)malloc(sizeof(INODE));
 
-	ZeroMemory(sector, MAX_SECTOR_SIZE);
+	ZeroMemory(sector, MAX_BLOCK_SIZE);	// MAX_SECTOR_SIZE -> MAX_BLOCK_SIZE	by seungmin
 	ZeroMemory(inodeBuffer, sizeof(INODE));
 
 	result = get_inode(dir->fs, dir->entry.inode, inodeBuffer); // inode number에 대한 메타데이터를 inodeBuffer에 저장
@@ -941,8 +941,8 @@ int ext2_read_dir(EXT2_NODE *dir, EXT2_NODE_ADD adder, void *list)
 	for (i = 0; i < inodeBuffer->blocks; ++i)
 	{
 		num = get_data_block_at_inode(dir->fs, *inodeBuffer, i + 1); // inodeBuffer의 number(i+1)번째 데이터 블록 번호를 return
-		data_read(dir->fs, 0, num, sector);							 // 디스크 영역에서 현재 블록그룹의 num번째 데이터 블록의 데이터를 sector 버퍼에 읽어옴
-
+		block_read(dir->fs, 0, num, sector);						 // 디스크 영역에서 현재 블록그룹의 num번째 데이터 블록의 데이터를 sector 버퍼에 읽어옴
+																	 // data_read -> block_read		by seungmin
 		if (dir->entry.inode == 2)									 // 루트 디렉터리
 			read_dir_from_sector(dir->fs, sector + 32, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가 (+32?)
 		else
@@ -958,9 +958,9 @@ int read_dir_from_sector(EXT2_FILESYSTEM *fs, BYTE *sector, EXT2_NODE_ADD adder,
 	EXT2_DIR_ENTRY *dir;
 	EXT2_NODE node;
 
-	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY); //최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
+	max_entries_Per_Sector = MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); //최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
 	dir = (EXT2_DIR_ENTRY *)sector;									   //디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
-
+			       													  // MAX_SECTOR_SIZE -> MAX_BLOCK_SIZE	by seungmin
 	for (i = 0; i < max_entries_Per_Sector; i++)
 	{
 		if (dir->name[0] == DIR_ENTRY_FREE) //탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
