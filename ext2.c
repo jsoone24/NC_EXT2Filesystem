@@ -116,7 +116,7 @@ void process_meta_data_for_inode_used(EXT2_NODE *retEntry, UINT32 inode_num, int
 	retEntry->entry.inode = inode_num;
 
 	INODE*	inodeBuffer;
-	BYTE	sector[MAX_SECTOR_SIZE];
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];
 	UINT32	offset;
 	UINT16	mask;
 
@@ -130,12 +130,12 @@ void process_meta_data_for_inode_used(EXT2_NODE *retEntry, UINT32 inode_num, int
 	set_inode_onto_inode_table(retEntry->fs, retEntry->entry.inode, inodeBuffer); // 아이노드 테이블 업데이트
 
 	// Update inode bitmap
-	ZeroMemory(sector, MAX_SECTOR_SIZE);
-	data_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 sector 버퍼에 저장
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
+	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (retEntry->entry.inode+1) % 8; // 섹터 내의 offset 계산
 	mask = (1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-	sector[retEntry->entry.inode/8] |= mask; // 비트맵 수정
-	data_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
+	blockBuffer[retEntry->entry.inode/8] |= mask; // 비트맵 수정
+	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	return;
 }
@@ -145,15 +145,15 @@ int set_entry( EXT2_FILESYSTEM* fs, const EXT2_DIR_ENTRY_LOCATION* location, con
 {
 	/* value의 크기가 섹터만큼 크지 않더라도 바로 기록하면 나머지 정보들이 원하지 않는 값으로 바뀔 수 있기 때문에
 	섹터 단위로 읽어와 해당 영역만 바꿔준 후 다시 기록함 */
-	BYTE	sector[MAX_SECTOR_SIZE];
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];
 	EXT2_DIR_ENTRY*	entry;
 
-	data_read(fs, location->group, location->block, sector); // 디스크에서 해당 위치의 정보를 sector 버퍼로 읽어옴
+	block_read(fs, location->group, location->block, blockBuffer); // 디스크에서 해당 위치의 정보를 blockBuffer 버퍼로 읽어옴
 
-	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
+	entry = (EXT2_DIR_ENTRY*)blockBuffer; // 섹터의 시작주소
 	entry[location->offset] = *value; // 원하는 값을 기록
 
-	data_write(fs, location->group, location->block, sector); // 디스크에 sector 버퍼의 정보를 씀
+	block_write(fs, location->group, location->block, blockBuffer); // 디스크에 blockBuffer 버퍼의 정보를 씀
 
 	return EXT2_ERROR;
 }
@@ -448,18 +448,18 @@ int find_entry_at_sector(const BYTE *sector, const BYTE *formattedName, UINT32 b
 // 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장 (eunseo)
 int find_entry_on_root(EXT2_FILESYSTEM *fs, INODE inode, char *formattedName, EXT2_NODE *ret)
 {
-	BYTE	sector[MAX_SECTOR_SIZE];		// 루트 디렉터리의 엔트리를 저장하는 섹터
-	UINT32	number;							// formattedName을 가진 엔트리가 섹터 내에서 몇번째 엔트리인지
-	UINT32	entriesPerSector, lastEntry;	// entriesPerSector: 섹터 당 엔트리 수, lastEntry: 탐색할 마지막 엔트리
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];		// 루트 디렉터리의 엔트리를 저장하는 섹터
+	UINT32	number;						// formattedName을 가진 엔트리가 섹터 내에서 몇번째 엔트리인지
+	UINT32	entriesPerBlock, lastEntry;	// entriesPerBlock: 블록 당 엔트리 수, lastEntry: 탐색할 마지막 엔트리
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
 
-	read_root_sector(fs, sector); // 루트 디렉터리의 섹터단위 데이터를 sector 버퍼에 write
-	entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
+	read_root_block(fs, blockBuffer); // 루트 디렉터리의 섹터단위 데이터를 blockBuffer 버퍼에 write
+	entry = (EXT2_DIR_ENTRY*)blockBuffer; // 블록의 시작주소
 	
-	entriesPerSector = fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
-	lastEntry = entriesPerSector - 1; // 탐색할 마지막 엔트리
-	result = find_entry_at_sector(sector, formattedName, 0, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+	entriesPerBlock = MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); // 블록 당 엔트리 수
+	lastEntry = entriesPerBlock - 1; // 탐색할 마지막 엔트리
+	result = find_entry_at_sector(blockBuffer, formattedName, 0, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 
 	if( result == -1 || result == -2) // formattedName을 가진 엔트리가 없거나 더 이상 엔트리가 없다면 에러
 		return EXT2_ERROR;
@@ -480,55 +480,46 @@ int find_entry_on_root(EXT2_FILESYSTEM *fs, INODE inode, char *formattedName, EX
 // 데이터 영역에서 formattedName의 엔트리 검색 (eunseo)
 int find_entry_on_data(EXT2_FILESYSTEM *fs, INODE first, const BYTE *formattedName, EXT2_NODE *ret)
 {
-	BYTE	sector[MAX_SECTOR_SIZE];	// 엔트리를 저장하는 섹터
-	UINT32	i, block, number;			// block: inode 내에서 데이터블록의 위치 오프셋, number: 블록 내에서 formattedName을 가진 엔트리의 위치 오프셋
-	UINT32	sectorsPerBlock;
-	UINT32	entriesPerSector, beginEntry, lastEntry;	// beginEntry: 탐색할 시작 엔트리, lastEntry: 탐색할 마지막 엔트리
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 엔트리를 저장하는 섹터
+	UINT32	blockOffset, number;			// blockOffset: inode 내에서 데이터블록의 위치 오프셋, number: 블록 내에서 formattedName을 가진 엔트리의 위치 오프셋
+	UINT32	beginEntry, lastEntry;		// beginEntry: 탐색할 시작 엔트리, lastEntry: 탐색할 마지막 엔트리
+	UINT32	entriesPerBlock;			// 블록 당 엔트리 수
 	INT32	blockNum;					// 데이터 블록 번호 (그룹에 상관 없이 고유)
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
 
-	sectorsPerBlock		= MAX_SECTOR_SIZE / MAX_BLOCK_SIZE; // 블록 당 섹터 수
-	entriesPerSector	= fs->disk->bytesPerSector / sizeof( EXT2_DIR_ENTRY ); // 섹터 당 엔트리 수
-	lastEntry			= entriesPerSector - 1; // 마지막 엔트리
+	entriesPerBlock		= MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); // 블록 당 엔트리 수
+	lastEntry			= entriesPerBlock - 1; // 마지막 엔트리
 
-	for (block = 0; block < first.blocks; block++) // 데이터 블록 단위로 검색 
+	for (blockOffset = 0; blockOffset < first.blocks; blockOffset++) // 데이터 블록 단위로 검색 
 	{
-		blockNum = get_data_block_at_inode(fs, first, block); // 데이터 블록 번호 (그룹에 상관 없이 고유)
+		blockNum = get_data_block_at_inode(fs, first, blockOffset); // 데이터 블록 번호 (그룹에 상관 없이 고유)
 
-		for (i = 0; i < sectorsPerBlock; i++) // 섹터단위로 검색
+		block_read(fs, 0, blockNum, blockBuffer); // 데이터 블록의 데이터를 blockBuffer 버퍼에 저장
+		entry = (EXT2_DIR_ENTRY*)blockBuffer; // 블록의 시작주소
+
+		beginEntry = blockOffset * entriesPerBlock; // 탐색할 시작 엔트리
+		lastEntry = beginEntry + entriesPerBlock - 1; // 탐색할 마지막 엔트리
+		result = find_entry_at_sector(blockBuffer, formattedName, beginEntry, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+
+		if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
+			continue; 
+		else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
 		{
-			UINT32 blockSize; // 블록 사이즈
-			UINT32 sectorCount; // 한 블록 안에 몇 개의 섹터가 들어있는지
-			blockSize = cal_block_size(fs->sb.log_block_size); // 블록 사이즈 계산
-			sectorCount = blockSize / MAX_SECTOR_SIZE; // 블록 당 섹터수 계산 = fs->sb.log_block_size
-
-			data_read(fs, 0, blockNum * blockSize + i * sectorCount, sector); // 데이터 블록의 데이터를 sector 버퍼에 저장
-			entry = (EXT2_DIR_ENTRY*)sector; // 섹터의 시작주소
-
-			beginEntry = i * entriesPerSector; // 탐색할 시작 엔트리
-			lastEntry = beginEntry + entriesPerSector - 1; // 탐색할 마지막 엔트리
-			result = find_entry_at_sector(sector, formattedName, beginEntry, lastEntry, &number); // 섹터에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-
-			if( result == -1 ) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
-				continue; 
-			else // 현재 섹터에서 찾았거나 마지막 엔트리까지 검색한 경우
+			if( result == -2 ) // 더 이상 엔트리가 없다면 에러
+				return EXT2_ERROR;
+			else // 해당 엔트리를 찾았다면 ret에서 가리키는 EXT2_NODE를 entry 정보로 초기화
 			{
-				if( result == -2 ) // 더 이상 엔트리가 없다면 에러
-					return EXT2_ERROR;
-				else // 해당 엔트리를 찾았다면 ret에서 가리키는 FAT_NODE를 entry 정보로 초기화
-				{
-					memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
+				memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) ); // 엔트리의 내용을 복사
 
-					ret->location.group	= 0;
-					ret->location.block	= blockNum;
-					ret->location.offset	= number;
+				ret->location.group	= 0;
+				ret->location.block	= blockNum;
+				ret->location.offset	= number;
 
-					ret->fs = fs;
-				}
-
-				return EXT2_SUCCESS;
+				ret->fs = fs;
 			}
+
+			return EXT2_SUCCESS;
 		}
 	}
 }
@@ -639,6 +630,18 @@ int read_root_sector(EXT2_FILESYSTEM *fs, BYTE *sector) //루트 디렉터리에
 	rootBlock = get_data_block_at_inode(fs, inodeBuffer, 1); // 루트 디렉터리의 첫번째 데이터 블록 번호를 return
 
 	return data_read(fs, 0, rootBlock, sector); // 루트 디렉터리의 데이터 블록의 데이터를 sector 버퍼에 저장
+}
+
+// 루트 디렉터리의 데이터블록을 sector 버퍼에 write (eunseo)
+int read_root_block(EXT2_FILESYSTEM *fs, BYTE *sector) //루트 디렉터리에 관한 정보를 읽어옴. fs로 넘겨주면, sector에 담아줌
+{
+	UINT32 inode = 2;										 // 루트 디렉터리 inode number
+	INODE inodeBuffer;										 // 아이노드 메타데이터
+	SECTOR rootBlock;										 // 루트 디렉터리의 첫번째 데이터블록 번호
+	get_inode(fs, inode, &inodeBuffer);						 // 루트 디렉터리의 메타데이터를 inodeBuffer에 저장
+	rootBlock = get_data_block_at_inode(fs, inodeBuffer, 1); // 루트 디렉터리의 첫번째 데이터 블록 번호를 return
+
+	return block_read(fs, 0, rootBlock, sector); // 루트 디렉터리의 데이터 블록의 데이터를 sector 버퍼에 저장
 }
 
 
@@ -1534,7 +1537,7 @@ int create_root(DISK_OPERATIONS *disk, EXT2_SUPER_BLOCK *sb) //루트 디렉터�
 void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 select)
 {
 	INODE*	inodeBuffer;
-	BYTE	sector[MAX_SECTOR_SIZE];
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];
 	int		i;
 	UINT32	num, offset;
 	UINT16	mask;
@@ -1553,14 +1556,14 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 		// Update data block bitmap
 		for (i = 0; i < inodeBuffer->blocks; i++)
 		{
-			ZeroMemory(sector, MAX_SECTOR_SIZE);
+			ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
 			num = get_data_block_at_inode(fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
-			data_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
+			block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBuffer); // 데이터 블록 비트맵 sector 버퍼에 저장
 			offset = (num+1) % 8; // 섹터 내의 offset 계산
 			mask = (1 << offset); // 오프셋을 1로 수정하기 위한 마스크
-			sector[num/8] |= mask; // 비트맵 수정
-			data_write(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
+			blockBuffer[num/8] |= mask; // 비트맵 수정
+			block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 		}
 	}
 	else if(select==1) // block_num번 블록이 해제된 것에 대한 메타데이터 처리
@@ -1571,14 +1574,14 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 		// Update data block bitmap
 		for (i = 0; i < inodeBuffer->blocks; i++)
 		{
-			ZeroMemory(sector, MAX_SECTOR_SIZE);
+			ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
 			num = get_data_block_at_inode(fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
-			data_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
+			block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBuffer); // 데이터 블록 비트맵 blockBuffer 버퍼에 저장
 			offset = (num+1) % 8; // 섹터 내의 offset 계산
 			mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-			sector[num/8] &= mask; // 비트맵 수정
-			data_write(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
+			blockBuffer[num/8] &= mask; // 비트맵 수정
+			block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 		}
 	}
 	else
@@ -1601,7 +1604,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 int ext2_remove(EXT2_NODE* file)
 {
 	INODE*	inodeBuffer;
-	BYTE	sector[MAX_SECTOR_SIZE];	// 1024Byte
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 1024Byte
 	int		result, i;
 	UINT32	num, offset;				// num: 데이터블록 넘버, offset: 섹터 내에서 데이터블록 오프셋
 	UINT16	mask;
@@ -1621,24 +1624,24 @@ int ext2_remove(EXT2_NODE* file)
 	/*
 	for (i = 0; i < inodeBuffer->blocks; i++)
 	{
-		ZeroMemory(sector, MAX_SECTOR_SIZE);
+		ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
 		num = get_data_block_at_inode(file->fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
-		data_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
+		block_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, blockBuffer); // 데이터 블록 비트맵 blockBuffer 버퍼에 저장
 		offset = (num+1) % 8; // 섹터 내의 offset 계산
 		mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-		sector[num/8] &= mask; // 비트맵 수정
-		data_write(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
+		blockBuffer[num/8] &= mask; // 비트맵 수정
+		block_write(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 	}
 	*/
 
 	// 아이노드 비트맵 수정
-	ZeroMemory(sector, MAX_SECTOR_SIZE);
-	data_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 sector 버퍼에 저장
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
+	block_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (file->entry.inode+1) % 8; // 섹터 내의 offset 계산
 	mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-	sector[file->entry.inode/8] &= mask; // 비트맵 수정
-	data_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
+	blockBuffer[file->entry.inode/8] &= mask; // 비트맵 수정
+	block_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	// 해제된 아이노드 데이터블럭 0으로 초기화
 	for (i = 0; i < EXT2_N_BLOCKS; i++)
@@ -1662,7 +1665,7 @@ int ext2_remove(EXT2_NODE* file)
 }
 
 
-// Read file (eunseo) - offset부터 length만큼 읽어서 buffer에 저장
+// Read file (eunseo) - offset부터 length만큼 읽어서 buffer에 저장. length = 1024, buffer[1025] = {0,}으로 호출됨
 int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char* buffer)
 {
 	BYTE	sector[MAX_SECTOR_SIZE];					// 디스크에서 섹터 단위로 읽어오기 위한 버퍼
