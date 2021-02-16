@@ -172,7 +172,7 @@ int ext2_format(DISK_OPERATIONS* disk);												//ext2파일 시스템으로 
 int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry);			//파일시스템에서 파일을 새로 생성할때 호출되는 함수
 int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry);		//entryName을 갖는 엔트리가 있는지 검색해 그 위치를 리턴
 
-int ext2_df(EXT2_FILESYSTEM* fs, unsigned int total, unsigned int used);
+int ext2_df(EXT2_FILESYSTEM *fs, unsigned int * total, unsigned int * used);
 int ext2_rmdir(EXT2_NODE* dir); 
 
 //int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);
@@ -184,7 +184,7 @@ UINT32 expand_block(EXT2_FILESYSTEM * , UINT32 );									//????
 int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);										//메모리 어떤 곳에 슈퍼블록 내용을 채워넣는 함수
 int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR * gd, EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);	//메모리 어떤 곳에 파일디스크립터 내용을 채워넣는 함수
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb);						//루트 디렉터리를 생성하는 함수
-void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num);		//
+void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num, UINT32 select);		//
 
 typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*, void*, EXT2_NODE*);
 //디렉토리 엔트리정보를 읽어 리스트로 계속 뒤에 추가하는 함수. EXT2_NODE 내부의 fs, entry필드에 연결해야하는 디렉터리 엔트리에 대한 정보가 담겨서 들어온다.
