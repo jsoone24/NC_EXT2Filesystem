@@ -172,7 +172,7 @@ int ext2_format(DISK_OPERATIONS* disk);												//ext2파일 시스템으로 
 int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry);			//파일시스템에서 파일을 새로 생성할때 호출되는 함수
 int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry);		//entryName을 갖는 엔트리가 있는지 검색해 그 위치를 리턴
 
-int ext2_df(EXT2_FILESYSTEM* fs, unsigned int total, unsigned int used);
+int ext2_df(EXT2_FILESYSTEM *fs, unsigned int * total, unsigned int * used);
 int ext2_rmdir(EXT2_NODE* dir); 
 
 //int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);

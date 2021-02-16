@@ -910,7 +910,7 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 	UINT32 groupNumber;			// 해당 아이노드의 블록 그룹 번호
 	UINT32 groupOffset;			// 해당 아이노드의 그룹 내 offset(블록 단위)
 	UINT32 blockOffset;			// 해당 아이노드의 블록 내 offset(아이노드 단위)
-	BYTE blockBuffer[cal(fs->sb.log_block_size)];			// 블록을 저장할 버퍼
+	BYTE blockBuffer[cal_block_size(fs->sb.log_block_size)];			// 블록을 저장할 버퍼
 
 	if (inode_num>fs->sb.max_inode_count||inode_num<1)
 	{
@@ -922,7 +922,7 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 	{
 		return EXT2_ERROR;
 	}
-	ZeroMemory(blockBuffer, cal(fs->sb.log_block_size));								// 버퍼 초기화
+	ZeroMemory(blockBuffer, cal_block_size(fs->sb.log_block_size));								// 버퍼 초기화
 	if(block_read(fs, groupNumber, groupOffset, blockBuffer))							// 해당 아이노드가 속해 있는 블록을 읽어옴
 	{
 		return EXT2_ERROR;
@@ -1273,7 +1273,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		return EXT2_ERROR;
 	}
 
-	ZeroMemory(blockBuffer, cal(fs->sb.log_block_size));	
+	ZeroMemory(blockBuffer, cal_block_size(fs->sb.log_block_size));	
 	if(block_read(fs, groupNumber, groupOffset, blockBuffer))							// 해당 아이노드가 속한 블록 읽어서 blockBuffer에 저장
 	{
 		return EXT2_ERROR;
