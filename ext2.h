@@ -7,7 +7,8 @@
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <unistd.h>
-#define GNU_SOURCE"
+#include <assert.h>
+#define GNU_SOURCE
 
 #include <string.h>
 

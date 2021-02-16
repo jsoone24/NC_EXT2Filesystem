@@ -242,16 +242,17 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
  	expand_block 함수에서는 return 받은 블록 번호를 아이노드의 block 필드의 비어 있는 인덱스에 연결하고, process_meta_data_for_block_used를 통해 메타데이터 수정
 	*/
 
-
 	UINT32 result, inode_which_block_group;	//result : 사용가능한 블록 번호를 저장할 변수, inode_which_block_group : 인자로 받은 아이노드가 어느 블록 그룹에 있는지
-	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;	//블럭당 섹터의 개수
-	UINT32 k = 0;	//그룹 번호 저장
-	BYTE sector[MAX_SECTOR_SIZE];	//블럭 비트맵을 가져와서 저장할 공간.
-	const SECTOR BOOT_BLOCK = 1;	//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
+	UINT32 block_group_number = 0;			//블럭 그룹 번호 저장
+	BYTE block[MAX_BLOCK_SIZE];				//블럭 비트맵을 가져와서 저장할 공간.
+	BYTE temp = 0;
+	const SECTOR BOOT_BLOCK = 1;			//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
 	EXT2_FILESYSTEM* _fs = fs;
-	EXT2_GROUP_DESCRIPTOR* gdp;	//group descriptor pointer라는 뜻
+	EXT2_GROUP_DESCRIPTOR* gdp;				//group descriptor pointer라는 뜻
+	gdp = (EXT2_GROUP_DESCRIPTOR*)(&(_fs->gd));
+	UINT32 i = 0;
+	UINT32 j = 0;
 
-	gdp = (EXT2_GROUP_DESCRIPTOR*)_fs->gd; // error - cannot convert to a pointer type
 
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
@@ -259,55 +260,35 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 		if (gdp[inode_which_block_group].free_blocks_count)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
-			for (UINT32 i = 0; i < sector_num_per_block; i++) //블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
-			{
-				ZeroMemory(sector, MAX_SECTOR_SIZE);
-				data_read(_fs, inode_which_block_group, (gdp[inode_which_block_group].start_block_of_block_bitmap + i), sector); //데이터 블럭을 읽어옴.
-
-
-				for(UINT32 j = 0; (j < (MAX_SECTOR_SIZE * 8)) && ((j + i * (MAX_SECTOR_SIZE * 8)) < (_fs->sb.block_per_group - _fs->sb.first_data_block_each_group)); j++)	//j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
-				{
-					if (sector & 1)			  //사용중이면 1, 사용중이지 않으면 0
-						sector = sector >> 1; //비트하나씩 땡겨가며 가정 처음 부터 탐색.
-					else					  //사용중이지 않은 데이터 블록을 찾음
-					{
-						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
-						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + (inode_which_block_group * (_fs->sb.block_per_group)) + (_fs->sb.first_data_block_each_group);
-						return result;
-					}
-				}
-			}
-
-			return EXT2_ERROR; // 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+			block_group_number = inode_which_block_group;
 		}
-		else //아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하지 않는 경우, 다른 블럭 그룹에서 사용가능한 블럭번호를 계산해 리턴.
+		else //같은 그룹내에 아이노드를 할당할 공간이 없는 경우.
 		{
-			while (!(gdp[k].free_blocks_count)) //사용가능한 데이터 블럭이 없는 블럭 그룹은 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
-				k++;
-
-			//돌아다니다가 사용가능한 데이터 블럭이 있는 블럭 그룹을 찾은 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
-			for (UINT32 i = 0; i < sector_num_per_block; i++) //블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
-			{
-				ZeroMemory(sector, MAX_SECTOR_SIZE);
-				data_read(_fs, k, gdp[k].start_block_of_block_bitmap + i, sector); //데이터 블럭을 읽어옴.
-
-				for (UINT32 j = 0; (j < MAX_SECTOR_SIZE * 8) && ((j + i * (MAX_SECTOR_SIZE * 8)) < (_fs[k]->sb.block_per_group - _fs[k]->sb.first_data_block_each_group)); j++)
-				{
-					if (sector & 1)			  //사용중이면 1, 사용중이지 않으면 0
-						sector = sector >> 1; //비트하나씩 땡겨가며 가정 처음 부터 탐색.
-					else					  //사용중이지 않은 데이터 블록을 찾음
-					{
-						// result 찾은 섹터, 섹터당 비트 개수, 그리고 찾았던 비트 숫자가 블럭 번호이므로 계산해서 result에 저장.
-						result = BOOT_BLOCK + (i * MAX_SECTOR_SIZE * 8 + j) + (k * (_fs->sb.block_per_group)) + (_fs[k]->sb.first_data_block_each_group);
-						return result;
-					}
-				}
-			}
-
-			return EXT2_ERROR; // 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+			for(i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
+				if((gdp[i].free_blocks_count) > 0)
+					break;
+			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 아이노드가 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
+			block_group_number = i;
 		}
-	}
 
+		//가장 빨리 비어있는 아이노드 빈자리를 아이노드 비트맵을 통해 구한다.
+		ZeroMemory(block, MAX_BLOCK_SIZE);
+		block_read(_fs, block_group_number, BLOCK_BITMAP, block);	//블럭 비트맵 읽어옴
+	
+		for(i = 0; i < MAX_BLOCK_SIZE; i++)	//i : 비트맵 내에서 오프셋
+		{
+			if(block[i] != 0xFF);	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
+			{
+				temp = block[i];
+				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+					temp >>= 1;
+
+				result = BOOT_BLOCK + (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + (_fs->sb.first_data_block_each_group);	//아이노드 번호 계산해서 저장.
+				return result;
+			}
+		}
+		return EXT2_ERROR; // 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+	}
 	return EXT2_ERROR; //슈퍼블럭 전체에서 할당가능한 데이터 블럭이 없는 경우 에러 발생.
 }
 
@@ -397,20 +378,19 @@ int lookup_entry(EXT2_FILESYSTEM *fs, const int inode, const char *name, EXT2_NO
 
 // 섹터(데이터 블록)에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 int find_entry_at_sector(const BYTE *sector, const BYTE *formattedName, UINT32 begin, UINT32 last, UINT32 *number) //sector로 기준점이 들어오면, begin과 last로 섹터 범위를 지정해서 지정된 섹터만큼에서 검색하는걸까
-{
-	// 섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
-	// 있으면 number변수에 섹터 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
+{	
+	//sector 파라미터는 block으로 생각.
+	//섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
+	//있으면 number변수에 블럭 내에서의 위치를 저장하고, EXT2_SUCCESS 리턴
 	EXT2_DIR_ENTRY*   dir;
 	UINT	i;
-
-	UINT max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY);	//최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
 	dir = ((EXT2_DIR_ENTRY*)sector + begin);	//디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
 
 	for (i = begin; i <= last; i++)
 	{
 		if (formattedName == NULL) // 이름에 상관없이 유효한 엔트리의 위치를 찾음
 		{
-			if( dir->name[0] != DIR_ENTRY_FREE && dir->name[0] != DIR_ENTRY_NO_MORE )
+			if( (dir->name[0] != DIR_ENTRY_FREE) && (dir->name[0] != DIR_ENTRY_NO_MORE) )
 			{
 				number = i;
 				return EXT2_SUCCESS;
@@ -837,14 +817,16 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 	//일단 아이노드 수 체크해서 없으면 에러, 있으면 비트맵 비교를 통해 가장 앞에 비어있는 아이노드 번호를 리턴 해주어야 한다고 생각.
 	//리턴 형이 unsigned int 32비트 형식이니까 그대로 아이노드 번호를 리턴해주어야 할 것으로 생각.
 
-	EXT2_GROUP_DESCRIPTOR *gdp; //group descriptor pointer라는 뜻
-	EXT2_FILESYSTEM *_fs = fs;
-	UINT32 result;
-	BYTE sector[MAX_SECTOR_SIZE];	//아이노드 비트맵을 가져와서 저장할 공간.
-	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;			//블럭당 섹터의 개수
-	UINT32 k = 0;	//블럭 그룹 번호 저장
+	EXT2_GROUP_DESCRIPTOR* gdp;	//group descriptor pointer라는 뜻
+	EXT2_FILESYSTEM* _fs = fs;	//fs가리키는 포인터 새로 생성
+	UINT32 result;				//결과를 담을 변수
+	BYTE block[MAX_BLOCK_SIZE];	//아이노드 비트맵을 가져와서 저장할 공간.
+	BYTE temp = 0;
+	UINT32 block_group_number = 0;				//블럭 그룹 번호 저장
+	UINT32 j = 0;
+	UINT32 i = 0;
 
-	gdp = (EXT2_GROUP_DESCRIPTOR*)_fs->gd; // error - cannot convert to a pointer type
+	gdp = (EXT2_GROUP_DESCRIPTOR*)(&(_fs->gd));
 
 
 	//먼저 슈퍼블럭값을 통해 볼륨 전체에 사용가능한 아이노드 저장공간이 있는지 확인.
@@ -852,52 +834,32 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 	{
 		if (gdp[_fs->sb.block_group_number].free_inodes_count) //같은 그룹내에 아이노드를 할당할 공간이 있는 경우.
 		{
-			//가장 빨리 비어있는 아이노드 빈자리를 아이노드 비트맵을 통해 구한다.
-			for (UINT32 i = 0; i < sector_num_per_block; i++) //블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
-			{
-				ZeroMemory(sector, MAX_SECTOR_SIZE);
-				data_read(_fs, _fs->sb.block_group_number, (gdp[_fs->sb.block_group_number].start_block_of_inode_bitmap + i), sector); //데이터 블럭을 읽어옴.
-
-				for (UINT32 j = 0; (j < (MAX_SECTOR_SIZE * 8)) && ((j + i * (MAX_SECTOR_SIZE * 8)) < _fs->sb.inode_per_group); j++) //j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
-				{
-					if (sector & 1)			  //사용중이면 1, 사용중이지 않으면 0
-						sector = sector >> 1; //비트하나씩 땡겨가며 가정 처음 부터 탐색.
-					else					  //사용중이지 않은 데이터 블록을 찾음
-					{
-						//앞에 그룹 수 * 그룹 내 아이노드 수 + 비트맵 몇번째 섹터 더했는지, 비트맵에서 j가 몇번인지.
-						result = (_fs->sb.inode_per_group * _fs->sb.block_group_number) + (i * MAX_SECTOR_SIZE * 8) + j;
-						return result;
-					}
-				}
-			}
-
-			return EXT2_ERROR; // 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
+			block_group_number = _fs->sb.block_group_number;
 		}
 		else //같은 그룹내에 아이노드를 할당할 공간이 없는 경우.
 		{
-			while (!(gdp[k].free_inodes_count)) //사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
-				k++;
-
-			//가장 빨리 비어있는 아이노드 빈자리를 아이노드 비트맵을 통해 구한다.
-			for (UINT32 i = 0; i < sector_num_per_block; i++) //블럭당 섹터 수 만큼 섹터를 읽는다. i: 현재 처리중인 섹터 번호.
+			for(i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
+				if((gdp[i].free_inodes_count) > 0)
+					break;
+			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 아이노드가 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
+			block_group_number = i;
+		}
+		//가장 빨리 비어있는 아이노드 빈자리를 아이노드 비트맵을 통해 구한다.
+		ZeroMemory(block, MAX_BLOCK_SIZE);
+		block_read(_fs, block_group_number, INODE_BITMAP, block);	//block_group_number 에 비어있는 그룹 번호가 담김 그 그룹의 아이노드 비트맵의 블럭 번호를 읽어옴
+	
+		for(i = 0; i < MAX_BLOCK_SIZE; i++)	//i : 비트맵 내에서 오프셋
+		{
+			if(block[i] != 0xFF);	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
 			{
-				ZeroMemory(sector, MAX_SECTOR_SIZE);
-				data_read(_fs, k, (gdp[k].start_block_of_inode_bitmap + i), sector); //데이터 블럭을 읽어옴.
+				//앞에 그룹 수 * 그룹 내 아이노드 수 + 비트맵 몇번째 섹터 더했는지, 비트맵에서 j가 몇번인지.
+				temp = block[i];
+				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+					temp >>= 1;
 
-				for (UINT32 j = 0; (j < (MAX_SECTOR_SIZE * 8)) && ((j + i * (MAX_SECTOR_SIZE * 8)) < _fs->sb.inode_per_group); j++) //j : 비트맵 내에서 비트맵의 오프셋, 즉 블록 그룹내의 블록 번호 의미
-				{
-					if (sector & 1)			  //사용중이면 1, 사용중이지 않으면 0
-						sector = sector >> 1; //비트하나씩 땡겨가며 가정 처음 부터 탐색.
-					else					  //사용중이지 않은 데이터 블록을 찾음
-					{
-						//앞에 그룹 수 * 그룹 내 아이노드 수 + 비트맵 몇번째 섹터 더했는지, 비트맵에서 j가 몇번인지.
-						result = (_fs->sb.inode_per_group * k) + (i * MAX_SECTOR_SIZE * 8) + j;
-						return result;
-					}
-				}
+				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j;	//아이노드 번호 계산해서 저장.
+				return result;
 			}
-
-			return EXT2_ERROR; // 이 루프에서 못 찾은경우 에러 리턴 -> 루프 검증 필요 하다는 뜻
 		}
 	}
 
@@ -1747,24 +1709,22 @@ int ext2_rmdir(EXT2_NODE* dir)
  	메타 데이터 수정(free_block_count 등)
 	*/
 
-	EXT2_NODE *_dir = dir;																 //EXT2_NODE 를 다른 포인터로 지정해 놓는다.
-	INODE dir_inode;																	 //삭제하려는 디렉터리에 대한 아이노드 정보를 저장하는 변수
-	UINT32 sector_num_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;						 //블럭당 섹터의 개수
-	UINT32 inode_table_group_location;													 //inode table 저장된 블럭 번호 저장하는 변수.
-	UINT32 inode_num_per_sector = MAX_SECTOR_SIZE / (_dir->fs->sb.inode_structure_size); //sector에 아이노드 구조체가 몇개 들어갈 수 있는지.
-	UINT32 k = 0;																		 //그룹 번호 저장, 다용도
-	EXT2_DIR_ENTRY *entry;																 //디렉터리 엔트리 저장하는 포인터
-	BYTE sector[MAX_SECTOR_SIZE];														 //블럭 비트맵을 가져와서 저장할 공간.
+	EXT2_NODE* _dir = dir;				//EXT2_NODE 를 다른 포인터로 지정해 놓는다.
+	INODE dir_inode;					//삭제하려는 디렉터리에 대한 아이노드 정보를 저장하는 변수
+	EXT2_DIR_ENTRY* entry;				//디렉터리 엔트리 저장하는 포인터
+	BYTE block[MAX_BLOCK_SIZE];			//블럭 비트맵을 가져와서 저장할 공간.
+	UINT32 inode_table_group_location;	//inode table 저장된 블럭 번호 저장하는 변수.
+	UINT32 block_group_number = 0;		//그룹 번호 저장, 다용도
 
 	if (get_inode(_dir->fs, _dir->entry.inode, &dir_inode)) //삭제 하려는 디렉터리의아이노드 정보 읽어오기
 	{
-		if ((dir_inode.mode && 0b1111000000000000) == 0x4000) //mode 비트의 하위 9~11비트를 비교해서 디렉터리인지확인
+		if ((dir_inode.mode & 0b1111000000000000) == 0x4000) //mode 비트의 하위 9~11비트를 비교해서 디렉터리인지확인
 		{
 			if (dir_inode.links_count > 1) //디렉터리를 가르키는 하드링크수가 1개보다 많으면, 디렉터리를 가르키는 링크가 하나 더 있다는 의미이므로 지우려는 디렉터리 엔트리만 삭제
 			{
 				//아이노드 dir_inode.links_count 하나 줄이기, 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
 				//그룹디스크립터 directories_count 변수 수정.
-				k = (_dir->entry.inode) / (_dir->fs->sb.inode_per_group);											//아이노드 번호를 그룹당 아이노드 개수로 나누어서 아이노드 속한 그룹 알아냄.
+				block_group_number = GET_INODE_GROUP(_dir->entry.inode); //아이노드 속한 그룹 알아냄.
 				inode_table_group_location = (((EXT2_GROUP_DESCRIPTOR *)_dir->fs) + k)->start_block_of_inode_table; //아이노드 테이블이 저장된 곳의 블럭 번호를 불러옴
 
 				dir_inode.links_count--;
@@ -1826,7 +1786,5 @@ int ext2_rmdir(EXT2_NODE* dir)
 		}
 	}
 	else
-	{
 		return EXT2_ERROR; //삭제하려는 디렉터리의 아이노드 정보 읽어오기 실패
-	}
 }
