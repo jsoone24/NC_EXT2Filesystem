@@ -10,9 +10,9 @@ typedef struct
 // 파일 쓰기
 int ext2_write(EXT2_NODE *file, unsigned long offset, unsigned long length, const char *buffer)
 {
-	BYTE sector[MAX_SECTOR_SIZE];					 //섹터크기만큼 배열 크기 설정
-	DWORD currentOffset, currentBlock, blockSeq = 0; //
-	DWORD blockNumber, sectorNumber, sectorOffset;	 //
+	BYTE blockBuffer[MAX_BLOCK_SIZE];					 //섹터크기만큼 배열 크기 설정		// sector[MAX_SECTOR_SIZE] -> blockBuffer[MAX_BLOCK_SIZE]	by seungmin
+	DWORD currentOffset, currentBlock, blockSeq = 0; 
+	DWORD blockNumber,blockOffset;						 // sectorNumber, sectorOffset - removed	/ blockOffset - added 	 by seungmin	 
 	DWORD readEnd;
 	DWORD blockSize;
 	INODE node;
@@ -70,22 +70,27 @@ int ext2_write(EXT2_NODE *file, unsigned long offset, unsigned long length, cons
 			}
 			currentBlock = nextBlock; // 다음 블록으로 이동
 		}
+		/*
 		sectorNumber = (currentOffset / (MAX_SECTOR_SIZE)) % (MAX_BLOCK_SIZE / MAX_SECTOR_SIZE); // 몇 번째 섹터인지 계산
 		sectorOffset = currentOffset % MAX_SECTOR_SIZE;											 // 섹터 내의 위치 계산
+		by seungmin*/	
+		
+		blockOffset = currentOffset%MAX_BLOCK_SIZE;		// by seungmin
 
-		copyLength = MIN(MAX_SECTOR_SIZE - sectorOffset, readEnd - currentOffset); // 섹터에서 읽어온 바이트 수와 더 읽어야 할 바이트 수 중 작은 값을 버퍼로 복사할 크기로 정함
+		copyLength = MIN(MAX_BLOCK_SIZE - blockOffset, readEnd - currentOffset); // 섹터에서 읽어온 바이트 수와 더 읽어야 할 바이트 수 중 작은 값을 버퍼로 복사할 크기로 정함
+		// from (MAX_SECTOR_SIZE - sectorOffset)	by seungmin
 
-		if (copyLength != MAX_SECTOR_SIZE) // 복사할 크기가 섹터 하나의 크기와 같이 않으면
+		if (copyLength != MAX_BLOCK_SIZE) // 복사할 크기가 섹터 하나의 크기와 같이 않으면
 										   // -> 한 섹터의 내용을 모두 바꿀거면 굳이 읽어올 필요가 없지만
 										   //    일부만 바꿀 경우 섹터 단위로 읽어오지 않고 데이터를 쓸 경우 나머지 데이터가 원하지 않는 값으로 변경될 수 있음
-		{
-			if (data_read(file->fs, file->fs->sb.block_group_number, currentBlock, sector)) //두번째 인자가 0일때는 그룹이 하나 일때, 여러개면 지금 있는게 맞다.
-				break;
+		{							
+			if (block_read(file->fs, 0, currentBlock, blockBuffer)) //두번째 인자가 0일때는 그룹이 하나 일때, 여러개면 지금 있는게 맞다.
+				break;										   // file->fs->sb.block_group_number -> 0		by seungmin
 		}
 
-		memcpy(&sector[sectorOffset], buffer, copyLength); // 버퍼에서 새로 쓸 데이터 복사
+		memcpy(&blockBuffer[blockOffset], buffer, copyLength); // 버퍼에서 새로 쓸 데이터 복사	// &sector[sectorOffset] -> &blockBuffer[blockOffset]  by seungmin
 
-		if (data_write(file->fs, 0, currentBlock, sector))
+		if (data_write(file->fs, 0, currentBlock, blockBuffer))		// sector -> blockBuffer   by seungmin
 			break;
 
 		buffer += copyLength;
@@ -806,7 +811,7 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을 읽는 함수 인것 같다. root는 읽은 슈퍼블록을 담을 곳을 인자로 넘겨 받음
 {
 	INT result;					  //결과를 리턴을 위한 변수
-	BYTE sector[MAX_SECTOR_SIZE]; //섹터크기 만큼 바이트 설정. 연속적으로 고정된 공간 할당 위해 정적배열 사용 (1024바이트)
+	BYTE sector[MAX_BLOCK_SIZE]; //섹터크기 만큼 바이트 설정. 연속적으로 고정된 공간 할당 위해 정적배열 사용 (1024바이트)
 
 	if (fs == NULL || fs->disk == NULL) //fs가 지정되지 않으면 에러
 	{
@@ -814,9 +819,9 @@ int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을
 		return EXT2_ERROR;
 	}
 
-	meta_read(fs, 0, SUPER_BLOCK, sector);			   //
-	memcpy(&fs->sb, sector, sizeof(EXT2_SUPER_BLOCK)); //첫번째 인자가 목적지, 두번째 인자가 어떤 것을 복사할지, 세번째는 크기
-	meta_read(fs, 0, GROUP_DES, sector);			   //그룹 디스크립터 읽는듯.
+	block_read(fs, 0, SUPER_BLOCK, sector);			   // meta_read -> block_read 	by seungmin
+	memcpy(&fs->sb, sector, sizeof(EXT2_SUPER_BLOCK)); // 첫번째 인자가 목적지, 두번째 인자가 어떤 것을 복사할지, 세번째는 크기
+	block_read(fs, 0, GROUP_DES, sector);			   // 그룹 디스크립터 읽는듯. 	/ meta_read -> block_read	by seungmin
 	memcpy(&fs->gd, sector, sizeof(EXT2_GROUP_DESCRIPTOR));
 	//디스크에서 슈퍼블록 정보 입력을 받아와서 인자로 들어온 fs의 슈퍼블록을 업데이트하는 과정으로 생각됨.
 
@@ -824,7 +829,7 @@ int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을
 		return EXT2_ERROR;
 
 	ZeroMemory(sector, sizeof(MAX_SECTOR_SIZE)); //메모리 초기화.
-	if (read_root_sector(fs, sector))			 //슈퍼블록이 루트 디렉터리를 제대로 가리키는지 체크하기 위한 부분이 아닐까 생각.
+	if (read_root_block(fs, sector))			 //슈퍼블록이 루트 디렉터리를 제대로 가리키는지 체크하기 위한 부분이 아닐까 생각.
 		return EXT2_ERROR;
 
 	ZeroMemory(root, sizeof(EXT2_NODE));
@@ -947,14 +952,14 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 // 디렉터리의 엔트리들을 리스트에 담음
 int ext2_read_dir(EXT2_NODE *dir, EXT2_NODE_ADD adder, void *list)
 {
-	BYTE sector[MAX_SECTOR_SIZE];
+	BYTE sector[MAX_BLOCK_SIZE];		// MAX_SECTOR_SIZE -> MAX_BLOCK_SIZE	by seungmin
 	INODE *inodeBuffer;
 	UINT32 inode;
 	int i, result, num;
 
 	inodeBuffer = (INODE *)malloc(sizeof(INODE));
 
-	ZeroMemory(sector, MAX_SECTOR_SIZE);
+	ZeroMemory(sector, MAX_BLOCK_SIZE);	// MAX_SECTOR_SIZE -> MAX_BLOCK_SIZE	by seungmin
 	ZeroMemory(inodeBuffer, sizeof(INODE));
 
 	result = get_inode(dir->fs, dir->entry.inode, inodeBuffer); // inode number에 대한 메타데이터를 inodeBuffer에 저장
@@ -965,8 +970,8 @@ int ext2_read_dir(EXT2_NODE *dir, EXT2_NODE_ADD adder, void *list)
 	for (i = 0; i < inodeBuffer->blocks; ++i)
 	{
 		num = get_data_block_at_inode(dir->fs, *inodeBuffer, i + 1); // inodeBuffer의 number(i+1)번째 데이터 블록 번호를 return
-		data_read(dir->fs, 0, num, sector);							 // 디스크 영역에서 현재 블록그룹의 num번째 데이터 블록의 데이터를 sector 버퍼에 읽어옴
-
+		block_read(dir->fs, 0, num, sector);						 // 디스크 영역에서 현재 블록그룹의 num번째 데이터 블록의 데이터를 sector 버퍼에 읽어옴
+																	 // data_read -> block_read		by seungmin
 		if (dir->entry.inode == 2)									 // 루트 디렉터리
 			read_dir_from_sector(dir->fs, sector + 32, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가 (+32?)
 		else
@@ -982,9 +987,9 @@ int read_dir_from_sector(EXT2_FILESYSTEM *fs, BYTE *sector, EXT2_NODE_ADD adder,
 	EXT2_DIR_ENTRY *dir;
 	EXT2_NODE node;
 
-	max_entries_Per_Sector = MAX_SECTOR_SIZE / sizeof(EXT2_DIR_ENTRY); //최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
+	max_entries_Per_Sector = MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); //최대 섹터 크기를 디렉터리 엔트리 크기로 나누어서 섹터에 들어갈 수 있는 디렉터리 엔트리 개수를 구한다.
 	dir = (EXT2_DIR_ENTRY *)sector;									   //디렉토리 엔트리 주소를 sector로 받아서 dir에 저장하고 dir로 이용
-
+			       													  // MAX_SECTOR_SIZE -> MAX_BLOCK_SIZE	by seungmin
 	for (i = 0; i < max_entries_Per_Sector; i++)
 	{
 		if (dir->name[0] == DIR_ENTRY_FREE) //탐색하다가 중간에 비어 있는 공간이 있으면 그냥 통과. fragmentation일 수도 있으니.
