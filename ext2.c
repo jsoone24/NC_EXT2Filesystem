@@ -531,7 +531,7 @@ int get_inode(EXT2_FILESYSTEM *fs, const UINT32 inode, INODE *inodeBuffer)
 	UINT32 groupNumber;							// 해당 아이노드가 속해 있는 블록 그룹 번호
 	UINT32 groupOffset;								// 해당 블록 그룹에서의 아이노드 테이블의 위치 + 아이노드 테이블에서 몇 번째 블록인지(블록 단위 offset)
 	UINT32 blockOffset;							// 블록에서 몇 번재 아이노드인지
-	BYTE blockBuffer[cal_block_size(fs->sb.log_block_size)];		// 한 블록을 읽어오기 위한 버퍼
+	BYTE blockBuffer[MAX_BLOCK_SIZE];		// 한 블록을 읽어오기 위한 버퍼
 
 	if (inode>fs->sb.max_inode_count||inode<1)
 	{
@@ -540,7 +540,7 @@ int get_inode(EXT2_FILESYSTEM *fs, const UINT32 inode, INODE *inodeBuffer)
 	}
 	
 	get_inode_location(fs, inode, &groupNumber, &groupOffset, &blockOffset);
-	ZeroMemory(blockBuffer, cal_block_size(fs->sb.log_block_size));		
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);		
 		
 	if(block_read(fs,groupNumber, groupOffset, blockBuffer))	
 	// 해당 아이노드가 속해 있는 블록을 읽어옴(data_read 함수에서는 섹터 단위로 탐색하고 섹터 단위로 읽음으로 sectorCount만큼 곱해줌)
@@ -587,7 +587,7 @@ int block_read(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, unsi
 	UINT32 blockSize;							// 블록 사이즈
 	UINT32 sectorCount;							// 한 블록 안에 몇 개의 섹터가 들어있는지
 
-	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 사이즈 계산
+	blockSize=MAX_BLOCK_SIZE;	// 블록 사이즈 계산
 	sectorCount=blockSize/MAX_SECTOR_SIZE;				// 블록 당 섹터 수 계산
 
 	for (int i=0;i<sectorCount;i++)
@@ -606,7 +606,7 @@ int block_write(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, uns
 	UINT32 blockSize;							// 블록 사이즈
 	UINT32 sectorCount;							// 한 블록 안에 몇 개의 섹터가 들어있는지
 
-	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 사이즈 계산
+	blockSize=MAX_BLOCK_SIZE;	// 블록 사이즈 계산
 	sectorCount=blockSize/MAX_SECTOR_SIZE;			// 블록 당 섹터 수
 
 	for (int i=0;i<sectorCount;i++)
@@ -658,9 +658,9 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 	UINT32 maxNumber;			// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수
 	UINT32 count=12;			// 몇 번째 간접 블록인지 계산하기 위한 변수
 	UINT32 offset;				// 간접 블록 내에서 몇 번째 블록인지
-	BYTE blockBuffer[cal_block_size(fs->sb.log_block_size)];
+	BYTE blockBuffer[MAX_BLOCK_SIZE];
 
-	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 크기 설정
+	blockSize=MAX_BLOCK_SIZE;	// 블록 크기 설정
 	block=(blockSize/4);						// 블록 당 가질 수 있는 데이터 블록의 수(4byte 단위임으로)
 	maxNumber=12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
@@ -694,7 +694,7 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 	}
 
 	get_block_location(fs, inode.block[count-1], groupNumber, groupOffset);	// 블록 번호로 블록의 위치 찾아 인자에 저장
-	ZeroMemory(blockBuffer,cal_block_size(fs->sb.log_block_size));									// 버퍼 초기화
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);									// 버퍼 초기화
 
 	if(block_read(fs, groupNumber, groupOffset, blockBuffer))			// 간접 블록에서 가르키는 첫 번째 블록을 읽어옴
 	{																	
@@ -716,7 +716,7 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 			return inode_data_empty;
 		}
 		get_block_location(fs, *blockNumber, groupNumber, groupOffset);
-		ZeroMemory(blockBuffer,cal_block_size(fs->sb.log_block_size));		
+		ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);		
 		
 		if(block_read(fs, *groupNumber, *groupOffset, blockBuffer))	// 읽어온 블록 번호를 이용해 간접 블록에서 가르키는 다음 블록을 읽어옴
 		{																	
@@ -741,9 +741,9 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 	UINT32 blockOffset;			// 블록 내에서의 offset
 	UINT32 *blockNumber;	// 블록 번호를 저장하기 위한 변수
 	INT32 reTurn;
-	BYTE blockBuffer[cal_block_size(fs->sb.log_block_size)];
+	BYTE blockBuffer[MAX_BLOCK_SIZE];
 	
-	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 크기 설정(Byte단위)
+	blockSize=MAX_BLOCK_SIZE;	// 블록 크기 설정(Byte단위)
 	block=(blockSize/4);						// 블록 당 가질 수 있는 데이터 블록의 수(4byte 단위임으로)
 	maxNumber=12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
@@ -775,7 +775,7 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 		}
 		else
 		{
-			ZeroMemory(blockBuffer,cal_block_size(fs->sb.log_block_size));		
+			ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);		
 		
 			if(block_read(fs, groupNumber, groupOffset, blockBuffer))	// 읽어온 블록 번호를 이용해 간접 블록에서 가르키는 블록을 읽어옴
 			{																	
@@ -1078,7 +1078,7 @@ int data_read(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR sectorNum, BYTE *sector)
 	UINT32 sectorCount;							// 한 블록 안에 몇 개의 섹터가 들어있는지
 	const SECTOR BOOT_BLOCK = 1;
 
-	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 사이즈 계산
+	blockSize=MAX_BLOCK_SIZE;	// 블록 사이즈 계산
 	sectorCount=blockSize/MAX_SECTOR_SIZE;				// 블록 당 섹터 수 계산
 	
 	SECTOR real_index = ((BOOT_BLOCK + (group * fs->sb.block_per_group))*sectorCount) + sectorNum;
@@ -1091,7 +1091,7 @@ int data_write(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR sectorNum, BYTE *sector
 	UINT32 sectorCount;							// 한 블록 안에 몇 개의 섹터가 들어있는지
 	const SECTOR BOOT_BLOCK = 1;
 
-	blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 사이즈 계산
+	blockSize=MAX_BLOCK_SIZE;	// 블록 사이즈 계산
 	sectorCount=blockSize/MAX_SECTOR_SIZE;				// 블록 당 섹터 수 계산
 	
 	SECTOR real_index = ((BOOT_BLOCK + (group * fs->sb.block_per_group))*sectorCount) + sectorNum;
@@ -1258,7 +1258,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 	UINT32 blockOffset;
 	UINT32 available_block;				// 할당 가능한 데이터 블록 번호
 	UINT32 checkFree=1;					// 해당 아이노드에서 몇 번째 데이터 블록인지
-	UINT32 blockSize=cal_block_size(fs->sb.log_block_size);	// 블록 크기 설정
+	UINT32 blockSize=MAX_BLOCK_SIZE;	// 블록 크기 설정
 	UINT32 maxNumber = 12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
 	INT32 reTurn;
@@ -1443,7 +1443,21 @@ int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfSectors, UINT32 bytesP
 	sb->free_block_count = numberOfSectors - (17 * NUMBER_OF_GROUPS) - 1;
 	sb->free_inode_count = NUMBER_OF_INODES - 10;
 	sb->first_data_block = 1;
-	sb->log_block_size = 0;
+	switch(MAX_BLOCK_SIZE)
+	{
+		case 1024:
+			sb->log_block_size = 0;
+			break;
+		case 2048:
+			sb->log_block_size = 1;
+			break;
+		case 4096:
+			sb->log_block_size = 2;
+			break;
+		default:
+			printf("BLOCK SIZE ERROR\n");
+			break;
+	}
 	sb->log_fragmentation_size = 0;
 	sb->block_per_group = (numberOfSectors - 1) / NUMBER_OF_GROUPS;
 	sb->fragmentation_per_group = 0;
