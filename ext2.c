@@ -752,7 +752,6 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 	{
 		if (inode.block[number-1]<1)	// 아이노드 생성시 block 필드 값들을 0으로 초기화시켰을 경우
 		{
-			printf("The block is not allocated\n");
 			return inode_data_empty;
 		}
 		return inode.block[number-1];	// 인자로 인덱스가 아니라 몇 번째 데이터 블록인지가 넘어오는 듯 해 인덱스가 될 수 있도록 -1
@@ -911,12 +910,12 @@ int set_inode_onto_inode_table(EXT2_FILESYSTEM *fs, const UINT32 inode_num, INOD
 	}
 	
 	memcpy(&(blockBuffer[blockOffset*128]) ,inode_to_write, 128);						// 읽어온 블록에 수정한 아이노드 저장
-
+	
 	if(block_write(fs, groupNumber, groupOffset, blockBuffer))							// 수정한 블록을 다시 업데이트
 	{
 		return EXT2_ERROR;
 	}
-
+	
 	return EXT2_SUCCESS;
 	//호출하는 쪽에서 get_free_inode_number을 통해서 비어있는 아이노드 번호를 알아내서 which_inode_num_to_write로 넘겨줄것으로 예상
 	//호출하는 쪽에서 새로 생성되는 파일에 대한 아이노드 구조체를 새로 만듬. 그리고 그 구조체를 인자로 넘겨줄것으로 예상됨
@@ -1272,7 +1271,6 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 	get_inode(fs, inode_num, inodeBuffer);
 	printf("\tinode_num = %d\n", inode_num);
 	printf("\tinodeBuffer->block[0] = %d\n", inodeBuffer->block[0]);
-	printf("\t%d\n", get_data_block_at_inode(fs,*(inodeBuffer),1));
 	
 	while(get_data_block_at_inode(fs,*(inodeBuffer),checkFree)!=inode_data_empty)			// 아이노드에서 빈 데이터 블록을 찾을 때 까지
 	{																					// get_data_block_at_inode 함수 호출
@@ -1283,21 +1281,25 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		}
 		checkFree++;
 	}
-	
+	printf("checkFree : %d\n",checkFree);
 	if(checkFree<13)																	// 직접 블록이 비어있을 경우
 	{
-		if(available_block = get_available_data_block(fs, inode_num)<0)					// 할당 가능한 데이터 블록 번호 읽어옴
+		available_block = get_available_data_block(fs, inode_num);
+		if(available_block<0)					// 할당 가능한 데이터 블록 번호 읽어옴
 		{
 			printf("No empty block\n");
 			return EXT2_ERROR;
 		}
-		memcpy(&(inodeBuffer[((checkFree-1)*4)+40]), &available_block, 4);				
+		printf("available block : %d\n",available_block);
+		memcpy(&((*inodeBuffer).block[checkFree-1]), &available_block, 4);				
 		// 읽어온 아이노드에서 직접 블록 위치에 available_block 값 대입 - 40은 아이노드 구조체에서 block 필드의 위치, ((checkFree-1)*4)로 block 필드 내 offset 계산, 
-		if(set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
+		printf("inodeBuffer.block[0] : %d\n", (*inodeBuffer).block[0]);
+		if(set_inode_onto_inode_table(fs, inode_num, inodeBuffer))	// 수정한 아이노드 업데이트
 		{
 			return EXT2_ERROR;
 		}
-		process_meta_data_for_block_used(fs, available_block,0 );	// 해당 함수로 이동해서 제안을 읽어봐 주세요
+		// process_meta_data_for_block_used(fs, inode_num, 0 );
+		// 아이노드 blocks 필드 등 수정 필요
 		return EXT2_SUCCESS;
 	}	
 	else
@@ -1309,7 +1311,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 				printf("No empty block\n");
 				return EXT2_ERROR;
 			}
-			memcpy(&(inodeBuffer[(12*4)+40]), &available_block, 4);		// 간접블록에 available_block 값 대입
+			memcpy(&((*inodeBuffer).block[12]), &available_block, 4);		// 간접블록에 available_block 값 대입
 			if(set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
 			{
 				return EXT2_ERROR;
@@ -1323,7 +1325,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 				printf("No empty block\n");
 				return EXT2_ERROR;
 			}
-			memcpy(&(inodeBuffer[(13*4)+40]), &available_block, 4);		// 간접블록에 available_block 값 대입
+			memcpy(&((*inodeBuffer).block[13]), &available_block, 4);		// 간접블록에 available_block 값 대입
 			if(set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
 			{
 				return EXT2_ERROR;
@@ -1337,7 +1339,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 				printf("No empty block\n");
 				return EXT2_ERROR;
 			}
-			memcpy(&(inodeBuffer[(14*4)+40]), &available_block, 4);		// 간접블록에 available_block 값 대입
+			memcpy(&((*inodeBuffer).block[14]), &available_block, 4);		// 간접블록에 available_block 값 대입
 			if(set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
 			{
 				return EXT2_ERROR;
