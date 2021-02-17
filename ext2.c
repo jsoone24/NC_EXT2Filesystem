@@ -406,13 +406,13 @@ int find_entry_at_sector(const BYTE *sector, const BYTE *formattedName, UINT32 b
 		else // 찾는 이름이 설정된 경우
 		{
 			// 삭제된 엔트리나 마지막 엔트리를 찾는 경우 첫번째 바이트만 비교
-			if ( ( formattedName[0] == DIR_ENTRY_FREE || formattedName[0] == DIR_ENTRY_NO_MORE ) & ( formattedName[0] == dir->name[0] ) )
+			if ( ( formattedName[0] == DIR_ENTRY_FREE || formattedName[0] == DIR_ENTRY_NO_MORE ) && ( formattedName[0] == dir->name[0] ) )
 			{
 				*number = i;
 				return EXT2_SUCCESS;
 			}
 
-			if(strcmp(dir->name, formattedName) == 0)	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
+			if( memcmp( dir->name, formattedName, MAX_ENTRY_NAME_LENGTH ) == 0 )	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
 			{
 				*number = i;				//결과를 찾으면 number에 번호 기록후 리턴
 				return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
