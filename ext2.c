@@ -115,7 +115,6 @@ void process_meta_data_for_inode_used(EXT2_NODE *retEntry, UINT32 inode_num, int
 	세 번째 인자일 fileType은 파일이 디렉토리인지 아닌지 등을 판단해 메타데이터 수정 시 사용할 듯
 	*/
 	// 일단은 사용되었을 때(할당)를 가정. 해제는 고려하지 않음
-
 	retEntry->fs->sb.free_inode_count--;
 	retEntry->fs->gd.free_inodes_count--;
 	retEntry->entry.inode = inode_num;
@@ -123,23 +122,22 @@ void process_meta_data_for_inode_used(EXT2_NODE *retEntry, UINT32 inode_num, int
 	INODE*	inodeBuffer;
 	BYTE	blockBuffer[MAX_BLOCK_SIZE];
 	UINT32	offset;
-	UINT16	mask;
+	BYTE	mask = 1;
 
 	inodeBuffer = (INODE *)malloc(sizeof(INODE));
 	ZeroMemory(inodeBuffer, sizeof(INODE));
 	if (get_inode(retEntry->fs, inode_num, inodeBuffer) == EXT2_ERROR) // inode number에 대한 메타데이터를 inodeBuffer에 저장
 		return;
 
-	inodeBuffer->mode &= 0x0FFF;
-	inodeBuffer->mode |= fileType; // file type 지정
-	set_inode_onto_inode_table(retEntry->fs, retEntry->entry.inode, inodeBuffer); // 아이노드 테이블 업데이트
+	inodeBuffer->mode = fileType; // file type 지정
+	set_inode_onto_inode_table(retEntry->fs, inode_num, inodeBuffer); // 아이노드 테이블 업데이트
 
 	// Update inode bitmap
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
 	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
-	offset = (retEntry->entry.inode+1) % 8; // 섹터 내의 offset 계산
-	mask = (1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-	blockBuffer[retEntry->entry.inode/8] |= mask; // 비트맵 수정
+	offset = (inode_num-1) % 8; // 섹터 내의 offset 계산
+	mask <<= offset; // 오프셋을 0으로 수정하기 위한 마스크
+	blockBuffer[inode_num/8] |= mask; // 비트맵 수정
 	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	return;
@@ -488,7 +486,7 @@ int find_entry_on_data(EXT2_FILESYSTEM *fs, INODE first, const BYTE *formattedNa
 
 	for (blockOffset = 0; blockOffset < first.blocks; blockOffset++) // 데이터 블록 단위로 검색 
 	{
-		blockNum = get_data_block_at_inode(fs, first, blockOffset); // 데이터 블록 번호 (그룹에 상관 없이 고유)
+		blockNum = get_data_block_at_inode(fs, first, blockOffset+1); // 데이터 블록 번호 (그룹에 상관 없이 고유)
 
 		block_read(fs, 0, blockNum, blockBuffer); // 데이터 블록의 데이터를 blockBuffer 버퍼에 저장
 		entry = (EXT2_DIR_ENTRY*)blockBuffer; // 블록의 시작주소
@@ -842,6 +840,7 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 	UINT32 block_group_number = 0;				//블럭 그룹 번호 저장
 	UINT32 j = 0;
 	UINT32 i = 0;
+	BYTE mask = 0xFF;
 
 	gdp = (EXT2_GROUP_DESCRIPTOR*)(&(_fs->gd));
 
@@ -867,15 +866,16 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 	
 		for(i = 0; i < MAX_BLOCK_SIZE; i++)	//i : 비트맵 내에서 오프셋
 		{
-			if(block[i] != 0xFF);	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
+			if(block[i] != mask)	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
 			{
 				//앞에 그룹 수 * 그룹 내 아이노드 수 + 비트맵 몇번째 섹터 더했는지, 비트맵에서 j가 몇번인지.
 				temp = block[i];
-				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+				for(j = 0; (j < 8) && ((temp & 1) == 1); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+				{
 					temp >>= 1;
+				}
 
 				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j + 1;	//아이노드 번호 계산해서 저장.
-				// Warning - inode는 1부터 시작
         
 				return result;
 			}
@@ -1131,7 +1131,7 @@ int ext2_format(DISK_OPERATIONS *disk) //디스크를 ext2파일 시스템으로
 	ZeroMemory(sector, sizeof(sector));
 
 	sector[0] = 0xff;
-	sector[1] = 0x03;
+	sector[1] = 0x07;
 	disk->write_sector(disk, BOOT_SECTOR_BASE + 3, sector);
 
 	// inode table
@@ -1189,10 +1189,6 @@ int ext2_format(DISK_OPERATIONS *disk) //디스크를 ext2파일 시스템으로
 }
 int ext2_create(EXT2_NODE *parent, char *entryName, EXT2_NODE *retEntry) //파일시스템에서 파일을 새로 생성할때 호출되는 함수.
 {
-	printf("ext2_create start\n");
-	printf("free inodes count = %d\n", parent->fs->gd.free_inodes_count);
-	printf("free blocks count = %d\n", parent->fs->gd.free_blocks_count);
-	printf("---------------\n");
 	if ((parent->fs->gd.free_inodes_count) == 0)
 		return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
 	UINT32 inode;
@@ -1605,7 +1601,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 			fs->gd.free_blocks_count++;
 
 			ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-			num = get_data_block_at_inode(fs, *inodeBuffer, i); // i번째 데이터블록 넘버
+			num = get_data_block_at_inode(fs, *inodeBuffer, i+1); // i번째 데이터블록 넘버
 
 			block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBuffer); // 데이터 블록 비트맵 blockBuffer 버퍼에 저장
 			offset = (num+1) % 8; // 섹터 내의 offset 계산
