@@ -202,7 +202,10 @@ int insert_entry(UINT32 inode_num, EXT2_NODE *retEntry, int fileType)
 		// 마지막 엔트리 뒤에 새 엔트리 추가
 		entryName[0] = DIR_ENTRY_NO_MORE;
 		if (lookup_entry(retEntry->fs, inode_num, entryName, &entryNoMore) == EXT2_ERROR) // 마지막 엔트리를 찾지 못하면
+		{
+			printf("Can't find DIR_ENTRY_NO_MORE\n");
 			return EXT2_ERROR;
+		}
 
 
 		set_entry(retEntry->fs, &entryNoMore.location, &retEntry->entry); // 마지막 엔트리를 찾았다면 이 위치에 새 엔트리 기록
@@ -289,6 +292,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 					temp >>= 1;
 
 				result = BOOT_BLOCK + (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + (_fs->sb.first_data_block_each_group);	//아이노드 번호 계산해서 저장.
+				
 				return result;
 			}
 		}
@@ -397,7 +401,7 @@ int find_entry_at_sector(const BYTE *sector, const BYTE *formattedName, UINT32 b
 		{
 			if( (dir->name[0] != DIR_ENTRY_FREE) && (dir->name[0] != DIR_ENTRY_NO_MORE) )
 			{
-				number = i;
+				*number = i;
 				return EXT2_SUCCESS;
 			}
 		}
@@ -406,43 +410,48 @@ int find_entry_at_sector(const BYTE *sector, const BYTE *formattedName, UINT32 b
 			// 삭제된 엔트리나 마지막 엔트리를 찾는 경우 첫번째 바이트만 비교
 			if ( ( formattedName[0] == DIR_ENTRY_FREE || formattedName[0] == DIR_ENTRY_NO_MORE ) & ( formattedName[0] == dir->name[0] ) )
 			{
-				number = i;
+				*number = i;
 				return EXT2_SUCCESS;
 			}
 
-			if(strcmp(dir->name, formattedName))	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
+			if(strcmp(dir->name, formattedName) == 0)	//비어있는 공간도 아니고 실제로 디렉터리 엔트리가 있으면 이름 비교
 			{
-				number = i;				//결과를 찾으면 number에 번호 기록후 리턴
+				*number = i;				//결과를 찾으면 number에 번호 기록후 리턴
 				return  EXT2_SUCCESS;	//EXT2_SUCCESS 리턴
 			}
 		}
 
 		if (dir->name[0] == DIR_ENTRY_NO_MORE)	//더 이상 디렉터리 엔트리가 없으면. 루프 나옴.
 		{
-			number = i;
+			*number = i;
 			return -2;	//섹터 끝까지 보기전에 디렉터리 엔트리끝이 나왔으므로 에러.
 		}
 
 		dir++;	//결과 못 찾으면 계속 돔
 	}
 
-	number = i;
+	*number = i;
 	return EXT2_ERROR;	//여기까지 오는건 다 돌았는데 못 찾는 경우이므로 EXT2_ERROR 리턴
 }
 
 // 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장 (eunseo)
 int find_entry_on_root(EXT2_FILESYSTEM *fs, INODE inode, char *formattedName, EXT2_NODE *ret)
 {
-	BYTE	blockBuffer[MAX_BLOCK_SIZE];		// 루트 디렉터리의 엔트리를 저장하는 섹터
-	UINT32	number;						// formattedName을 가진 엔트리가 섹터 내에서 몇번째 엔트리인지
-	UINT32	entriesPerBlock, lastEntry;	// entriesPerBlock: 블록 당 엔트리 수, lastEntry: 탐색할 마지막 엔트리
+	INODE	inodeBuffer;					// 아이노드 메타데이터
+	SECTOR	rootBlock;						// 루트 디렉터리의 첫번째 데이터블록 번호
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 루트 디렉터리의 엔트리를 저장하는 섹터
+	UINT32	number;							// formattedName을 가진 엔트리가 섹터 내에서 몇번째 엔트리인지
+	UINT32	entriesPerBlock, lastEntry;		// entriesPerBlock: 블록 당 엔트리 수, lastEntry: 탐색할 마지막 엔트리
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
 
-	read_root_block(fs, blockBuffer); // 루트 디렉터리의 섹터단위 데이터를 blockBuffer 버퍼에 write
+	get_inode(fs, 2, &inodeBuffer);						 // 루트 디렉터리의 메타데이터를 inodeBuffer에 저장
+	rootBlock = get_data_block_at_inode(fs, inodeBuffer, 1); // 루트 디렉터리의 첫번째 데이터 블록 번호를 return
+	block_read(fs, 0, rootBlock, blockBuffer); // 루트 디렉터리의 데이터 블록의 데이터를 blockBuffer에 저장
+
 	entry = (EXT2_DIR_ENTRY*)blockBuffer; // 블록의 시작주소
 	
-	entriesPerBlock = MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); // 블록 당 엔트리 수
+	entriesPerBlock = MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); // 블록 당 엔트리 수 = 32개. sizeof(EXT2_DIR_ENTRY) = 32Byte
 	lastEntry = entriesPerBlock - 1; // 탐색할 마지막 엔트리
 	result = find_entry_at_sector(blockBuffer, formattedName, 0, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 
@@ -453,7 +462,7 @@ int find_entry_on_root(EXT2_FILESYSTEM *fs, INODE inode, char *formattedName, EX
 		memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) );
 
 		ret->location.group	= GET_INODE_GROUP(2);
-		ret->location.block	= 1;
+		ret->location.block	= rootBlock;
 		ret->location.offset = number; // 블록 안에서의 offset
 
 		ret->fs = fs;
@@ -865,7 +874,9 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
 					temp >>= 1;
 
-				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j;	//아이노드 번호 계산해서 저장.
+				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j + 1;	//아이노드 번호 계산해서 저장.
+				// Warning - inode는 1부터 시작
+        
 				return result;
 			}
 		}
@@ -933,9 +944,10 @@ int ext2_read_dir(EXT2_NODE *dir, EXT2_NODE_ADD adder, void *list)
 	{
 		num = get_data_block_at_inode(dir->fs, *inodeBuffer, i + 1); // inodeBuffer의 number(i+1)번째 데이터 블록 번호를 return
 		block_read(dir->fs, 0, num, sector);						 // 디스크 영역에서 현재 블록그룹의 num번째 데이터 블록의 데이터를 sector 버퍼에 읽어옴
-																	 // data_read -> block_read		by seungmin
+		// data_read -> block_read		by seungmin
 		if (dir->entry.inode == 2)									 // 루트 디렉터리
-			read_dir_from_sector(dir->fs, sector + 32, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가 (+32?)
+			read_dir_from_sector(dir->fs, sector + 32, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가
+			// 여기서 +32는 format, mount 이후에 루트 디렉터리에 알 수 없는 파일 하나가 생기는데, 그 파일을 건너뛰기 위해 주소 크기만큼 더해준 것
 		else
 			read_dir_from_sector(dir->fs, sector, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가
 	}
@@ -1238,6 +1250,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		return EXT2_ERROR;
 	}
 
+	/*
 	if(get_inode_location(fs, inode_num, &groupNumber, &groupOffset, &blockOffset))		// 해당 아이노드의 위치 읽어서 인자에 저장
 	{
 		return EXT2_ERROR;
@@ -1249,6 +1262,14 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		return EXT2_ERROR;
 	}
 	memcpy(inodeBuffer, &(blockBuffer[blockOffset*128]), 128);							// 해당 블록에서 아이노드 읽어서 inodeBuffer에 저장
+	*/
+
+	inodeBuffer = (INODE *)malloc(sizeof(INODE));
+	ZeroMemory(inodeBuffer, sizeof(INODE));	
+	get_inode(fs, inode_num, inodeBuffer);
+	printf("\tinode_num = %d\n", inode_num);
+	printf("\tinodeBuffer->block[0] = %d\n", inodeBuffer->block[0]);
+	printf("\t%d\n", get_data_block_at_inode(fs,*(inodeBuffer),1));
 	
 	while(get_data_block_at_inode(fs,*(inodeBuffer),checkFree)!=inode_data_empty)			// 아이노드에서 빈 데이터 블록을 찾을 때 까지
 	{																					// get_data_block_at_inode 함수 호출
