@@ -289,6 +289,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 					temp >>= 1;
 
 				result = BOOT_BLOCK + (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + (_fs->sb.first_data_block_each_group);	//아이노드 번호 계산해서 저장.
+				
 				return result;
 			}
 		}
@@ -865,7 +866,7 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
 					temp >>= 1;
 
-				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j;	//아이노드 번호 계산해서 저장.
+				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j + 1;	//아이노드 번호 계산해서 저장.
 				return result;
 			}
 		}
