@@ -292,6 +292,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 					temp >>= 1;
 
 				result = BOOT_BLOCK + (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + (_fs->sb.first_data_block_each_group);	//아이노드 번호 계산해서 저장.
+				
 				return result;
 			}
 		}
@@ -533,8 +534,8 @@ int get_inode(EXT2_FILESYSTEM *fs, const UINT32 inode, INODE *inodeBuffer)
 	}
 	
 	get_inode_location(fs, inode, &groupNumber, &groupOffset, &blockOffset);
-	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);		
-		
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
+
 	if(block_read(fs,groupNumber, groupOffset, blockBuffer))	
 	// 해당 아이노드가 속해 있는 블록을 읽어옴(data_read 함수에서는 섹터 단위로 탐색하고 섹터 단위로 읽음으로 sectorCount만큼 곱해줌)
 	// 섹터 단위로 읽은 후 block에 섹터 단위로 순서대로 저장
@@ -563,17 +564,13 @@ int get_inode_location(EXT2_FILESYSTEM* fs, const UINT32 inode, UINT32 *groupNum
 
 	inode_per_block = cal_inode_per_block(fs->sb.log_block_size);// 블록 크기에 따라 블록 당 아이노드 수 계산 - 아이노드의 크기를 128byte로 가정함 -> 다른 변수 set할 때도 이게 편할 듯
 	*groupNumber = (inode-1)/fs->sb.inode_per_group;			// 해당 아이노드가 속해있는 블록그룹의 번호 계산(-1은 아이노드의 인덱스가 1부터 시작하기 때문)
-	inodeTable = fs->gd.start_block_of_inode_table -1;
+	inodeTable = fs->gd.start_block_of_inode_table;
 	// 해당 블록그룹에서의 아이노드 테이블 시작 위치 -> 수퍼블록에 들어있는 아이노드 테이블의 시작 블록(offset 개념) - 1
 	/* 각각의 블록그룹마다 1 block의 수퍼블록, n block의 group_descriptor_table, 1 block의 blcok_bitmap, 1 block의 inode_bitmap을 가지고 있다
 	   이 때 group_descriptor_table의 크기는 모두 동일할 것임으로 start_block_of_inode_table을 n+3으로 set해서 offset으로 사용(부트섹터는 data_read에서 더해줌)*/
 	/* -1을 해준 이유 - 블록을 읽을 때는 시작 블록까지 포함에서 읽어야 함으로 첫 블록을 포함시켜 주기 위해*/
-	// tableOffset = (((inode-1)%fs->sb.inode_per_group)-1)/inode_per_block;	// 해당 아이노드 테이블에서의 offset(블록 단위)
-	// *groupOffset = inodeTable + tableOffset;
-	// *blockOffset = (((inode-1)%fs->sb.inode_per_group)-1) - (tableOffset*inode_per_block);		// 블록 내 offset(아이노드 개수 단위)
-
-	tableOffset = ((inode-1)%fs->sb.inode_per_group) / inode_per_block;	// 해당 아이노드 테이블에서의 offset(블록 단위)
-	*groupOffset = fs->gd.start_block_of_inode_table + tableOffset; // 그룹 내 블록단위 오프셋
+	tableOffset = ((inode-1)%fs->sb.inode_per_group)/inode_per_block;	// 해당 아이노드 테이블에서의 offset(블록 단위)
+	*groupOffset = inodeTable + tableOffset;
 	*blockOffset = ((inode-1)%fs->sb.inode_per_group) - (tableOffset*inode_per_block);		// 블록 내 offset(아이노드 개수 단위)
 
 	return EXT2_SUCCESS;
@@ -877,8 +874,9 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM *fs) //비어있는 아이노드 �
 				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
 					temp >>= 1;
 
-				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j + 3;	//아이노드 번호 계산해서 저장.
+				result = (_fs->sb.inode_per_group * block_group_number) + (i * 8) + j + 1;	//아이노드 번호 계산해서 저장.
 				// Warning - inode는 1부터 시작
+        
 				return result;
 			}
 		}
