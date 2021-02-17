@@ -172,12 +172,11 @@ int insert_entry(UINT32 inode_num, EXT2_NODE *retEntry, int fileType)
 	 DIR_ENTRY_NO_MORE을 나타내는 디렉토리 엔트리 추가, 위치정보 업데이트 등)
 	seungmin */
 	// fileType이 overwrite인 경우는 언제 필요한지 모르겠음. 일단 고려하지 않음.
-
+	
 	EXT2_NODE	entryNoMore;			// retEntry 다음 위치에 마지막 엔트리임을 나타내기 위한 노드
 	BYTE		entryName[2] = { 0, };	// 엔트리 이름을 저장하는 버퍼
 	UINT32		retEntry_inodeNum;		// retEntry의 inode number가 없을 경우 새로 할당 받은 inode number
 	DWORD		dataBlockNum;			// 새로 할당 받은 데이터 블록 넘버
-
 	if ( GET_INODE_FROM_NODE(retEntry) == 0 ) // retEntry의 inode number가 없으면
 	{
 		retEntry_inodeNum = get_free_inode_number(retEntry->fs); // 새로운 inode number 할당
@@ -187,7 +186,7 @@ int insert_entry(UINT32 inode_num, EXT2_NODE *retEntry, int fileType)
 	{
 		process_meta_data_for_inode_used(retEntry, retEntry->entry.inode, fileType);
 	}
-
+	
 	ZeroMemory( &entryNoMore, sizeof( EXT2_NODE ) ); // entryNoMore를 0으로 초기화
 	entryName[0] = DIR_ENTRY_FREE;
 
@@ -372,9 +371,10 @@ int format_name(EXT2_FILESYSTEM *fs, char *name) //파일 이름의 형식이 �
 int lookup_entry(EXT2_FILESYSTEM *fs, const int inode, const char *name, EXT2_NODE *retEntry)
 {
 	INODE	inodeBuffer;
+	
 	if (get_inode(fs, inode, &inodeBuffer) == EXT2_ERROR)
 		return EXT2_ERROR;
-
+	
 	if (inode == 2) // 루트 디렉터리
 		return find_entry_on_root(fs, inodeBuffer, name, retEntry);
 	else
@@ -438,7 +438,7 @@ int find_entry_on_root(EXT2_FILESYSTEM *fs, INODE inode, char *formattedName, EX
 	UINT32	entriesPerBlock, lastEntry;	// entriesPerBlock: 블록 당 엔트리 수, lastEntry: 탐색할 마지막 엔트리
 	INT32	result;
 	EXT2_DIR_ENTRY*	entry;
-
+	
 	read_root_block(fs, blockBuffer); // 루트 디렉터리의 섹터단위 데이터를 blockBuffer 버퍼에 write
 	entry = (EXT2_DIR_ENTRY*)blockBuffer; // 블록의 시작주소
 	
@@ -450,8 +450,9 @@ int find_entry_on_root(EXT2_FILESYSTEM *fs, INODE inode, char *formattedName, EX
 		return EXT2_ERROR;
 	else // 해당 엔트리를 찾았다면 ret에서 가리키는 EXT2_NODE를 entry 정보로 초기화
 	{
+		
 		memcpy( &ret->entry, &entry[number], sizeof( EXT2_DIR_ENTRY ) );
-
+		
 		ret->location.group	= GET_INODE_GROUP(2);
 		ret->location.block	= 1;
 		ret->location.offset = number; // 블록 안에서의 offset
@@ -991,17 +992,17 @@ int ext2_mkdir(const EXT2_NODE *parent, const char *entryName, EXT2_NODE *retEnt
 
 	if (format_name(parent->fs, (char *)name)) // EXT2 버전의 형식에 맞게 이름 수정
 		return EXT2_ERROR;
-
+	
 	/* newEntry */
 	ZeroMemory(retEntry, sizeof(EXT2_NODE));
 	memcpy(retEntry->entry.name, name, MAX_ENTRY_NAME_LENGTH);		 // name을 복사
 	retEntry->entry.name_len = strlen((char *)retEntry->entry.name); // name의 길이 저장
 	retEntry->fs = parent->fs;										 // EXT2_FILESYSTEM 복사
-
+	
 	result = insert_entry(parent->entry.inode, retEntry, FILE_TYPE_DIR); // 부모 디렉터리에 새로운 엔트리(retEntry) 추가
 	if (result == EXT2_ERROR)											 // 에러 발생시 종료
 		return EXT2_ERROR;
-
+	
 	expand_block(parent->fs, retEntry->entry.inode); // 새로운 엔트리(retEntry)의 데이터블록 할당
 	process_meta_data_for_block_used(parent->fs, retEntry->entry.inode, 0); // 일단 넣음. 원래는 없었음
 
@@ -1187,19 +1188,21 @@ int ext2_create(EXT2_NODE *parent, char *entryName, EXT2_NODE *retEntry) //파�
 	strcpy(name, entryName);
 	if (format_name(parent->fs, name) == EXT2_ERROR)
 		return EXT2_ERROR; //이름이 형식에 맞지 않으면 에러
-
+	
 	/* newEntry */
 	ZeroMemory(retEntry, sizeof(EXT2_NODE));
 	memcpy(retEntry->entry.name, name, MAX_ENTRY_NAME_LENGTH);
 	retEntry->fs = parent->fs;
 	inode = parent->entry.inode;
+	
 	if ((result = lookup_entry(parent->fs, inode, name, retEntry)) == EXT2_SUCCESS)
 		return EXT2_ERROR; //이미 디렉터리에 해당 이름의 파일이 있으면 에러
 	else if (result == -2)
 		return EXT2_ERROR;
-
+	
 	if (insert_entry(inode, retEntry, 0) == EXT2_ERROR)
 		return EXT2_ERROR;
+
 	return EXT2_SUCCESS;
 }
 int ext2_lookup(EXT2_NODE *parent, const char *entryName, EXT2_NODE *retEntry) //entryName을 갖는 엔트리가 있는지 검색해 그 위치를 리턴
