@@ -44,7 +44,7 @@ int ext2_write(EXT2_NODE *file, unsigned long offset, unsigned long length, cons
 		{
 			if (expand_block(file->fs, file->entry.inode) == EXT2_ERROR) //file->entry.inode 에 해당하는 아이노드를 찾아서 해당 아이노드의 비어있는 블록에 새로운 데이터 블록 할당.
 				return EXT2_ERROR;
-			process_meta_data_for_block_used(file->fs, file->entry.inode, 0); //프로세스가 처리하다의 프로세스 같다. expand_block 에서 데이터 블록을 할당이나 해제 했을때, free_block_count나 block_bitmap같은 메타 데이터 수정
+			// process_meta_data_for_block_used(file->fs, file->entry.inode, 0); //프로세스가 처리하다의 프로세스 같다. expand_block 에서 데이터 블록을 할당이나 해제 했을때, free_block_count나 block_bitmap같은 메타 데이터 수정
 			get_inode(file->fs, file->entry.inode, &node);				   // file->entry.inode의 메타데이터를 node에 write
 			currentBlock = node.block[0];								   // currentBlock을 할당된 데이터블록 번호로 지정
 		}
@@ -58,7 +58,7 @@ int ext2_write(EXT2_NODE *file, unsigned long offset, unsigned long length, cons
 			if (nextBlock == 0)										// nextBlock이 할당되지 않은 경우
 			{
 				expand_block(file->fs, file->entry.inode);					   // 데이터블록 할당
-				process_meta_data_for_block_used(file->fs, file->entry.inode, 0);
+				// process_meta_data_for_block_used(file->fs, file->entry.inode, 0);
 
 				get_inode(file->fs, file->entry.inode, &node);				   // file->entry.inode의 메타데이터를 node에 write
 				nextBlock = get_data_block_at_inode(file->fs, node, i); // node의 i번째 데이터블록 번호를 리턴
@@ -230,7 +230,7 @@ int insert_entry(UINT32 inode_num, EXT2_NODE *retEntry, int fileType)
 
 			if (expand_block(retEntry->fs, inode_num) == EXT2_ERROR) // 새로운 데이터 블록 할당
 				return EXT2_ERROR;
-			process_meta_data_for_block_used(retEntry->fs, retEntry->entry.inode, 0);
+			// process_meta_data_for_block_used(retEntry->fs, retEntry->entry.inode, 0);
 		}
 	
 		set_entry(retEntry->fs, &entryNoMore.location, &entryNoMore.entry); // 마지막이라고 기록
@@ -1015,7 +1015,7 @@ int ext2_mkdir(const EXT2_NODE *parent, const char *entryName, EXT2_NODE *retEnt
 		return EXT2_ERROR;
 
 	expand_block(parent->fs, retEntry->entry.inode); // 새로운 엔트리(retEntry)의 데이터블록 할당
-	process_meta_data_for_block_used(parent->fs, retEntry->entry.inode, 0); // 일단 넣음. 원래는 없었음
+	// process_meta_data_for_block_used(parent->fs, retEntry->entry.inode, 0); // 일단 넣음. 원래는 없었음
 
 	/* dotEntry */
 	ZeroMemory(&dotNode, sizeof(EXT2_NODE));
@@ -1187,6 +1187,10 @@ int ext2_format(DISK_OPERATIONS *disk) //디스크를 ext2파일 시스템으로
 }
 int ext2_create(EXT2_NODE *parent, char *entryName, EXT2_NODE *retEntry) //파일시스템에서 파일을 새로 생성할때 호출되는 함수.
 {
+	printf("ext2_create start\n");
+	printf("free inodes count = %d\n", parent->fs->gd.free_inodes_count);
+	printf("free blocks count = %d\n", parent->fs->gd.free_blocks_count);
+	printf("---------------\n");
 	if ((parent->fs->gd.free_inodes_count) == 0)
 		return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
 	UINT32 inode;
@@ -1212,6 +1216,11 @@ int ext2_create(EXT2_NODE *parent, char *entryName, EXT2_NODE *retEntry) //파�
 
 	if (insert_entry(inode, retEntry, 0) == EXT2_ERROR)
 		return EXT2_ERROR;
+
+	printf("ext2_create finish\n");
+	printf("free inodes count = %d\n", parent->fs->gd.free_inodes_count);
+	printf("free blocks count = %d\n", parent->fs->gd.free_blocks_count);
+	printf("---------------\n");
 	return EXT2_SUCCESS;
 }
 int ext2_lookup(EXT2_NODE *parent, const char *entryName, EXT2_NODE *retEntry) //entryName을 갖는 엔트리가 있는지 검색해 그 위치를 리턴
@@ -1535,6 +1544,20 @@ int create_root(DISK_OPERATIONS *disk, EXT2_SUPER_BLOCK *sb) //루트 디렉터�
 	return EXT2_SUCCESS;
 }
 
+void print_buffer(unsigned char *buffer)
+{
+	int mask;
+	for (int i=0; i<16; i++)
+	{
+		mask = 1 >> i;
+		printf("%d", *buffer & mask ? 1 : 0);
+
+		if (i % 8 == 0)
+			printf("\n");
+	}
+	printf("\n");
+}
+
 // (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 select)
 {
@@ -1552,12 +1575,12 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	// block_num은 블록 번호, select는 해당 블록이 할당되었는지 해제되었는지를 의미
 	if(select==0) // block_num번 블록이 할당된 것에 대한 메타데이터 처리
 	{
-		fs->sb.free_block_count--;
-		fs->gd.free_blocks_count--;
-
 		// Update data block bitmap
 		for (i = 0; i < inodeBuffer->blocks; i++)
 		{
+			fs->sb.free_block_count--;
+			fs->gd.free_blocks_count--;
+
 			ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
 			num = get_data_block_at_inode(fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
@@ -1570,12 +1593,12 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	}
 	else if(select==1) // block_num번 블록이 해제된 것에 대한 메타데이터 처리
 	{
-		fs->sb.free_block_count++;
-		fs->gd.free_blocks_count++;
-
 		// Update data block bitmap
 		for (i = 0; i < inodeBuffer->blocks; i++)
 		{
+			fs->sb.free_block_count++;
+			fs->gd.free_blocks_count++;
+
 			ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
 			num = get_data_block_at_inode(fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
@@ -1623,19 +1646,9 @@ int ext2_remove(EXT2_NODE* file)
 
 	// 데이터블록 비트맵 수정
 	process_meta_data_for_block_used(file->fs, file->entry.inode, 1);
-	/*
-	for (i = 0; i < inodeBuffer->blocks; i++)
-	{
-		ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-		num = get_data_block_at_inode(file->fs, *inodeBuffer, i); // i번째 데이터블록 넘버
 
-		block_read(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, blockBuffer); // 데이터 블록 비트맵 blockBuffer 버퍼에 저장
-		offset = (num+1) % 8; // 섹터 내의 offset 계산
-		mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-		blockBuffer[num/8] &= mask; // 비트맵 수정
-		block_write(file->fs, 0, file->fs->gd.start_block_of_block_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
-	}
-	*/
+	file->fs->sb.free_inode_count++;
+	file->fs->gd.free_inodes_count++;
 
 	// 아이노드 비트맵 수정
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
