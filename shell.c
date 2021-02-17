@@ -384,7 +384,7 @@ int shell_cmd_fill(int argc, char* argv[]) // 파일의 크기를 지정해 해�
 
 	sscanf(argv[2], "%d", &size); // argv[2]로부터 데이터를 읽어 size에 저장
 	sscanf(argv[3], "%s", opt); // argv[3]로부터 데이터를 읽어 opt에 저장
-
+	
 	if (strcmp(opt, CREATE) == 0) // CREATE 옵션은 새로운 파일 생성
 	{
 		// 파일명을 EXT2_ENTRY 형식에 맞게 수정한 뒤 해당 이름을 가지는 엔트리가 존재하지 않으면 부모 디렉터리에 추가해줌
@@ -400,7 +400,7 @@ int shell_cmd_fill(int argc, char* argv[]) // 파일의 크기를 지정해 해�
 		g_fsOprs.lookup(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1]); // 해당 이름을 가진 엔트리가 있는지 검색 (ext2_shell.c -> fs_lookup)
 		offset = entry.size; // offset을 엔트리 크기로 지정
 	}
-
+	
 	buffer = (char*)malloc(size + 13); // 파일에 내용을 쓰기 위한 버퍼
 	tmp = buffer; // 버퍼의 시작주소
 	while (tmp < buffer + size) // 버퍼의 크기만큼 해당 문자열을 채움
@@ -491,10 +491,10 @@ int shell_cmd_mkdir(int argc, char* argv[]) // 디렉터리 생성
 		printf("usage : %s [name]\n", argv[0]);
 		return 0;
 	}
-
+	
 	// 해당 이름을 가지는 엔트리가 있는지 검사 후 없으면 디렉터리 생성 (ext2_shell.c -> fs_mkdir)
 	result = g_fsOprs.mkdir(&g_disk, &g_fsOprs, &g_currentDir, argv[1], &entry);
-
+	
 	if (result) // 생성 실패 시
 	{
 		printf("cannot create directory\n");
