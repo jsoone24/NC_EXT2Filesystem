@@ -400,6 +400,7 @@ int shell_cmd_fill(int argc, char* argv[]) // 파일의 크기를 지정해 해�
 		g_fsOprs.lookup(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1]); // 해당 이름을 가진 엔트리가 있는지 검색 (ext2_shell.c -> fs_lookup)
 		offset = entry.size; // offset을 엔트리 크기로 지정
 	}
+	printf("\t\tlookup finish\n");
 	
 	buffer = (char*)malloc(size + 13); // 파일에 내용을 쓰기 위한 버퍼
 	tmp = buffer; // 버퍼의 시작주소

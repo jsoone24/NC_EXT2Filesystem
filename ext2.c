@@ -1567,12 +1567,14 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	UINT32	i, offset;
 	BYTE	mask = 1;
 
+	printf("\tfs->sb->free_block_count = %d\n", fs->sb.free_block_count);
 	// 모든 super block의 free_block_count를 1 감소
 	sb = (EXT2_SUPER_BLOCK *)malloc(sizeof(EXT2_SUPER_BLOCK));
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
 		ZeroMemory(sb, sizeof(EXT2_SUPER_BLOCK));
 		block_read(fs, i, 0, &sb);
+		printf("\tsb->free_block_count = %d\n", sb->free_block_count);
 		sb->free_block_count--;
 		block_write(fs, i, 0, &sb);
 	}
