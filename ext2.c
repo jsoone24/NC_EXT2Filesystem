@@ -1769,6 +1769,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 	EXT2_NODE* _dir = dir;				//EXT2_NODE 를 다른 포인터로 지정해 놓는다.
 	INODE dir_inode;					//삭제하려는 디렉터리에 대한 아이노드 정보를 저장하는 변수
 	EXT2_DIR_ENTRY* entry;				//디렉터리 엔트리 저장하는 포인터
+
 	BYTE block[MAX_BLOCK_SIZE];			//블럭 비트맵을 가져와서 저장할 공간.
 	BYTE temp = 0;						//비트맵 임시 저장 공간
 	UINT32 bitmap_idx = 0;				//비트맵 상에서 인덱스 번호
@@ -1777,11 +1778,13 @@ int ext2_rmdir(EXT2_NODE* dir)
 	UINT32 inode_table_group_location;	//inode table 저장된 블럭 번호 저장하는 변수.
 	UINT32 block_group_number = 0;		//그룹 번호 저장
 	UINT32 i = 0;						//다용도
+	UINT32 j = 0;						//다용도
+	UINT32 num = 0;						//블럭 읽을때 몇번 블럭인지 읽을 때 사용
 	entry_num_per_block = MAX_BLOCK_SIZE/sizeof(EXT2_DIR_ENTRY);
 
-	if (get_inode(_dir->fs, _dir->entry.inode, &dir_inode)) //삭제 하려는 디렉터리의아이노드 정보 읽어오기
+ 	if (!get_inode(_dir->fs, _dir->entry.inode, &dir_inode)) //삭제 하려는 디렉터리의아이노드 정보 읽어오기 EXT2_SUCCESS 값이 0이므로 ! 해줘야 1로 인식됨
 	{
-		if ((dir_inode.mode & 0b1111000000000000) == 0x4000) //mode 비트의 하위 9~11비트를 비교해서 디렉터리인지확인
+		if ((dir_inode.mode & 0xF000) == 0x4000) //mode 비트의 하위 9~11비트를 비교해서 디렉터리인지확인
 		{
 			if (dir_inode.links_count > 1) //디렉터리를 가르키는 하드링크수가 1개보다 많으면, 디렉터리를 가르키는 링크가 하나 더 있다는 의미이므로 지우려는 디렉터리 엔트리만 삭제
 			{
@@ -1804,20 +1807,26 @@ int ext2_rmdir(EXT2_NODE* dir)
 			{
 				//아이노드 할당해제 -> 다른 방법은 없고 그냥 비트맵을 사용가능으로 표시함으로써 해결
 
-				if (dir_inode.blocks == 1) //연결된 데이터 블럭이 있으면, 그 데이터 블럭을 탐색해서 데이터 블럭 내의 모든 디렉터리 엔트리가 사용중이지 않은 상태인지 검사. 하나라도 사용중인게 있으면 에러 발생.
+				if (dir_inode.blocks > 0) //연결된 데이터 블럭이 있으면, 그 데이터 블럭을 탐색해서 데이터 블럭 내의 모든 디렉터리 엔트리가 사용중이지 않은 상태인지 검사. 하나라도 사용중인게 있으면 에러 발생.
 				{
-					// ext2_read_dir(_dir, EXT2_NODE_ADD, entry); //adder 어디서 찾냐; entry에 잘 담겨 온다고 가정
-					for(i = 0; (i < entry_num_per_block) && (entry[i].name[0] != DIR_ENTRY_NO_MORE); i++)
+					//data block 읽음
+					for (j = 0; j < dir_inode.blocks; ++j)
 					{
-						if (entry[i].name[0] != DIR_ENTRY_FREE) //디렉터리 엔트리가 free가 아니라는건 뭐가 차있다는 것. 에러 발생.
+						ZeroMemory(block, MAX_BLOCK_SIZE);
+						num = get_data_block_at_inode(_dir->fs, dir_inode, j + 1);	// inodeBuffer의 number(i+1)번째 데이터 블록 번호를 return
+						block_read(dir->fs, 0, num, block);							// 디스크 영역에서 현재 블록그룹의 num번째 데이터 블록의 데이터를 block 버퍼에 읽어옴
+						
+						entry = (EXT2_DIR_ENTRY*)block;
+
+						for (i = (j > 0) ? 0 : 2; (i < entry_num_per_block) && (entry[i].name[0] != DIR_ENTRY_NO_MORE); i++)
 						{
-							return EXT2_ERROR;
+							if (entry[i].name[0] != DIR_ENTRY_FREE) //디렉터리 엔트리가 free가 아니라는건 뭐가 차있다는 것. 에러 발생.
+							{
+								return EXT2_ERROR;
+							}
 						}
 					}
-					assert(entry[i].name[0] != DIR_ENTRY_NO_MORE);	//DIR_ENTRY_NO_MORE 찾기전에 나와야되는데 못 나온 것이므로 문제있다. 에러.
-					assert(i != entry_num_per_block);	//최대 들어있는 엔트리 개수를 모두 읽었는데 없는 것이므로 에러
 				}
-
 				//디렉터리의 아이노드의 데이터 블럭이 0이라는건, 할당된 데이터 블럭이 없다는 뜻. 즉 디렉터리안에 아무것도 없으니 그냥 디렉터리 엔트리 지우면된다.
 				//여기까지 온거면 연결된게 없다는 뜻 삭제진행
 
@@ -1827,22 +1836,26 @@ int ext2_rmdir(EXT2_NODE* dir)
 				block_read(_dir->fs, block_group_number, INODE_BITMAP, block);	//sector에 아이노드가 들어있는 그룹의 아이노드 비트맵 저장.
 				bitmap_idx = (((_dir->entry.inode) % (_dir->fs->sb.inode_per_group)) / 8);
 				bitmap_offset = (((_dir->entry.inode) % (_dir->fs->sb.inode_per_group)) % 8);
-				memcpy(block[bitmap_idx], (block[bitmap_idx] & (~((unsigned)0x01 << bitmap_offset))), 1);
+				temp = (~((unsigned)0x01 << bitmap_offset - 1));
+				temp &= (block[bitmap_idx]);
+				block[bitmap_idx] = temp;
 				block_write(_dir->fs, block_group_number, INODE_BITMAP, block); //아이노드 비트맵 값을 바꾼 값으로 변경 후 다시 저장.
 
 				//디렉터리 엔트리 수정: 디렉터리 엔트리 이름 DIR_ENTRY_FREE로 수정.
 				ZeroMemory(block, MAX_BLOCK_SIZE);
-				block_read(_dir->fs, _dir->location.group, _dir->location.block, block); //sector에 디렉터리 엔트리가 들어있는 블럭 저장.
-				ZeroMemory(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, _dir->entry.name_len);	//이름을 바꾸기 전에 이름 영역 초기화.
-				memcpy(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, DIR_ENTRY_FREE, sizeof(DIR_ENTRY_FREE));	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
-				block_write(_dir->fs, _dir->location.group, _dir->location.block, block); //디렉터리 엔트리 값을 바꾸고 저장.
+				block_read(_dir->fs, _dir->location.group, _dir->location.block, block);	//block에 디렉터리 엔트리가 들어있는 블럭 저장.
+				memset(((EXT2_DIR_ENTRY*)block)[_dir->location.offset].name, 0x20, 11);		// 이름을 space로 초기화
+				((EXT2_DIR_ENTRY*)block)[_dir->location.offset].name[0] = DIR_ENTRY_FREE;	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
+				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);	//디렉터리 엔트리 값을 바꾸고 저장.
 
 				//그룹디스크립터 수정: directories_count 감소, free_inode_count 증가
 				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + dir->location.group)->directories_count--;	//그룹디스크립터의 사용중인 디렉터리 수 감소
 				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + dir->location.group)->free_inodes_count++;	//그룹디스크립터의 할당가능한 아이노드 수 증가
 
 				//슈퍼블럭 수정: free_inode_count 증가
-				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.	  
+				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.
+
+				return EXT2_SUCCESS;
 			}
 		}
 		else
