@@ -1,3 +1,9 @@
 .vscode/
 *.o
 shell
+/obj/x64/Debug
+/bin/x64/Debug
+/.vs
+/EXT2.vcxproj.user
+/EXT2.vcxproj
+/EXT2.sln
