@@ -258,12 +258,13 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 	gdp = (EXT2_GROUP_DESCRIPTOR*)(&(_fs->gd));
 	UINT32 i = 0;
 	UINT32 j = 0;
+	BYTE mask = 0xFF;
 
 
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
-		if (gdp[inode_which_block_group].free_blocks_count)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		if (gdp[inode_which_block_group].free_blocks_count > 0)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
 			block_group_number = inode_which_block_group;
@@ -283,13 +284,13 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 	
 		for(i = 0; i < MAX_BLOCK_SIZE; i++)	//i : 비트맵 내에서 오프셋
 		{
-			if(block[i] != 0xFF);	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
+			if(block[i] != mask)	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
 			{
 				temp = block[i];
-				for(j = 0; (j < 8) & ((temp & 1) == 0); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+				for(j = 0; (j < 8) && ((temp & 1) == 1); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
 					temp >>= 1;
 
-				result = BOOT_BLOCK + (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + (_fs->sb.first_data_block_each_group);	//아이노드 번호 계산해서 저장.
+				result = (_fs->sb.block_per_group * block_group_number) + (i * 8) + j;	//아이노드 번호 계산해서 저장.
 				
 				return result;
 			}
@@ -1301,7 +1302,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		{
 			return EXT2_ERROR;
 		}
-		process_meta_data_for_block_used(fs, inode_num, 0 );
+		process_meta_data_for_block_used(fs, inode_num, available_block );
 		// 아이노드 blocks 필드 등 수정 필요
 		
 		return EXT2_SUCCESS;
@@ -1562,22 +1563,24 @@ void print_buffer(unsigned char *buffer)
 // block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 block_num)
 {
+	printf("\n\tprocess_meta_data_for_block_used\n");
+	printf("\tinode_num = %d\tblock_num = %d\n", inode_num, block_num);
 	EXT2_SUPER_BLOCK *sb;
+	BYTE	sbBuffer[MAX_BLOCK_SIZE];
 	BYTE	blockBitmap[MAX_BLOCK_SIZE];
 	UINT32	i, offset;
 	BYTE	mask = 1;
 
-	printf("\tfs->sb.free_block_count = %d\n", fs->sb.free_block_count);
 	// 모든 super block의 free_block_count를 1 감소
 	sb = (EXT2_SUPER_BLOCK *)malloc(sizeof(EXT2_SUPER_BLOCK));
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
-		ZeroMemory(sb, sizeof(EXT2_SUPER_BLOCK));
-		block_read(fs, i, 0, &sb);
-		printf("\tbefore sb->free_block_count = %d\n", sb->free_block_count);
+		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
+		block_read(fs, i, 0, sbBuffer);
+		sb = (EXT2_SUPER_BLOCK *)sbBuffer;
 		sb->free_block_count--;
-		printf("\tafter sb->free_block_count = %d\n", sb->free_block_count);
-		block_write(fs, i, 0, &sb);
+		memcpy(sbBuffer, &sb, sizeof(sbBuffer));
+		block_write(fs, i, 0, sbBuffer);
 	}
 
 	// 현재 group descriptor의 free_blocks_count를 1 감소
