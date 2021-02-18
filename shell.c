@@ -410,6 +410,7 @@ int shell_cmd_fill(int argc, char* argv[]) // 파일의 크기를 지정해 해�
 	}
 	// 생성한 파일의 크기만큼 버퍼의 내용으로 채움
 	g_fsOprs.fileOprs->write(&g_disk, &g_fsOprs, &g_currentDir, &entry, offset, size, buffer); // (ext2_shell.c -> fs_write)
+	
 	free(buffer); // 버퍼 해제
 
 	return 0;
