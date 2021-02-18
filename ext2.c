@@ -264,7 +264,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
-		if (gdp[inode_which_block_group].free_blocks_count)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		if (gdp[inode_which_block_group].free_blocks_count > 0)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
 			block_group_number = inode_which_block_group;
@@ -741,7 +741,8 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 	block=(blockSize/4);						// 블록 당 가질 수 있는 데이터 블록의 수(4byte 단위임으로)
 	maxNumber=12+(blockSize/4)+((blockSize/4)*(blockSize/4))+((blockSize/4)*(blockSize/4)*(blockSize/4));
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
-
+	blockNumber= (UINT32*)malloc(sizeof(UINT32));
+	
 	if (number<1||number>maxNumber)	
 	{
 		printf("Invalid block number\n");
@@ -1062,7 +1063,7 @@ int data_read(EXT2_FILESYSTEM *fs, SECTOR group, SECTOR sectorNum, BYTE *sector)
 
 	blockSize=MAX_BLOCK_SIZE;	// 블록 사이즈 계산
 	sectorCount=blockSize/MAX_SECTOR_SIZE;				// 블록 당 섹터 수 계산
-	
+	printf("data_read: %d\n", sectorNum);
 	SECTOR real_index = ((BOOT_BLOCK + (group * fs->sb.block_per_group))*sectorCount) + sectorNum;
 
 	return fs->disk->read_sector(fs->disk, real_index, sector); // 성공 여부 리턴 (disksim.c -> disksim_read)
@@ -1260,7 +1261,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 	get_inode(fs, inode_num, inodeBuffer);
 	printf("\tinode_num = %d\n", inode_num);
 	printf("\tinodeBuffer->block[0] = %d\n", inodeBuffer->block[0]);
-	
+	printf("%d\n", fs->disk->numberOfSectors);
 	while(get_data_block_at_inode(fs,*(inodeBuffer),checkFree)!=inode_data_empty)			// 아이노드에서 빈 데이터 블록을 찾을 때 까지
 	{																						// get_data_block_at_inode 함수 호출
 		if(checkFree>maxNumber)
@@ -1270,7 +1271,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		}
 		checkFree++;
 	}
-
+	
 	if (checkFree == (12 + 1))											// 첫 번째 간접블록을 할당해야 할 경우
 	{
 		if (available_block = get_available_data_block(fs, inode_num) < 0)					// 할당 가능한 데이터 블록 번호 읽어옴
@@ -1314,7 +1315,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		process_meta_data_for_block_used(fs, available_block, 0);	// 해당 함수로 이동해서 제안을 읽어봐 주세요
 	}
 
-	printf("checkFree : %d\n",checkFree);
+	
 	if(checkFree<13)																	// 직접 블록이 비어있을 경우
 	{
 		available_block = get_available_data_block(fs, inode_num);
@@ -1332,7 +1333,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		{
 			return EXT2_ERROR;
 		}
-		//process_meta_data_for_block_used(fs, inode_num, available_block);
+		process_meta_data_for_block_used(fs, inode_num, available_block);
 		// 아이노드 blocks 필드 등 수정 필요
 		
 		return EXT2_SUCCESS;
@@ -1550,6 +1551,8 @@ void print_buffer(unsigned char *buffer)
 // block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 block_num)
 {
+	printf("\n\tprocess_meta_data_for_block_used\n");
+	printf("\tinode_num = %d\tblock_num = %d\n", inode_num, block_num);
 	EXT2_SUPER_BLOCK *sb;
 	BYTE	sbBuffer[MAX_BLOCK_SIZE];
 	BYTE	blockBitmap[MAX_BLOCK_SIZE];
@@ -1562,7 +1565,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	{
 		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
 		block_read(fs, i, 0, sbBuffer);
-		sb = (EXT2_SUPER_BLOCK*)sbBuffer;
+		sb = (EXT2_SUPER_BLOCK *)sbBuffer;
 		sb->free_block_count--;
 		memcpy(sbBuffer, &sb, sizeof(sbBuffer));
 		block_write(fs, i, 0, sbBuffer);
