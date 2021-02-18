@@ -137,7 +137,7 @@ void process_meta_data_for_inode_used(EXT2_NODE *retEntry, UINT32 inode_num, int
 	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (inode_num-1) % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	blockBuffer[inode_num/8] |= mask; // 비트맵 수정
+	blockBuffer[(inode_num-1)/8] |= mask; // 비트맵 수정
 	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	return;
@@ -1563,8 +1563,6 @@ void print_buffer(unsigned char *buffer)
 // block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 block_num)
 {
-	printf("\n\tprocess_meta_data_for_block_used\n");
-	printf("\tinode_num = %d\tblock_num = %d\n", inode_num, block_num);
 	EXT2_SUPER_BLOCK *sb;
 	BYTE	sbBuffer[MAX_BLOCK_SIZE];
 	BYTE	blockBitmap[MAX_BLOCK_SIZE];
