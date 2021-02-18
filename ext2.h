@@ -173,7 +173,7 @@ int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry);			//�
 int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry);		//entryName을 갖는 엔트리가 있는지 검색해 그 위치를 리턴
 
 int ext2_df(EXT2_FILESYSTEM *fs, unsigned int * total, unsigned int * used);
-int ext2_rmdir(EXT2_NODE* dir); 
+int ext2_rmdir(EXT2_NODE* dir);
 
 //int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);
 //ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_read에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
