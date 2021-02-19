@@ -1,4 +1,5 @@
 
+
 typedef struct
 {
 	char *address;
@@ -1603,14 +1604,15 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	//inode번호로 아이노드 테이블에서 아이노드를 가져옴. 아이노드 데이터블럭에서 가장 마지막 블럭을 비트맵에 사용중이라고 표시 ???
 }
 
-// 블록이 해제된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_free(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 {
-	EXT2_SUPER_BLOCK *sb;
+	EXT2_SUPER_BLOCK sb;
 	INODE*	inodeBuffer;
 	BYTE	blockBitmap[MAX_BLOCK_SIZE];
+	BYTE	block[MAX_BLOCK_SIZE];
 	UINT32	num, offset, i, j;
 	BYTE	mask = 1;
+	UINT32 size = 0;
 
 	inodeBuffer = (INODE *)malloc(sizeof(INODE));
 	ZeroMemory(inodeBuffer, sizeof(INODE));
@@ -1628,20 +1630,28 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 		mask = ~(mask << offset); // 오프셋을 0으로 수정하기 위한 마스크
 		blockBitmap[num/8] &= mask; // 비트맵 수정
 		block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+
+
+		ZeroMemory(block, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
+		block_write(fs, 0, num, block);
+
+		// 데이터 블록 그룹의 group descriptor의 free_blocks_count를 해제된 블록 개수만큼 증가
+		(((EXT2_GROUP_DESCRIPTOR*)&(fs->gd)) +	WHICH_GROUP_BLONG(num))->free_blocks_count++;
 	}
+
+	ZeroMemory(inodeBuffer->block, sizeof(block));
+	inodeBuffer->blocks = 0;
+	inodeBuffer->size = 0;
+	set_inode_onto_inode_table(fs, inode_num, inodeBuffer);	//아이노드에 할당된 데이터 블록 해제해 줬으니 아이노드 정보 수정
 
 	// 모든 super block의 free_block_count를 해제된 블록 개수만큼 증가
-	sb = (EXT2_SUPER_BLOCK *)malloc(sizeof(EXT2_SUPER_BLOCK));
 	for (j = 0; j < NUMBER_OF_GROUPS; j++)
 	{
-		ZeroMemory(sb, sizeof(EXT2_SUPER_BLOCK));
+		ZeroMemory(&sb, sizeof(EXT2_SUPER_BLOCK));
 		block_read(fs, i, 0, &sb);
-		sb->free_block_count += (i+1);
+		sb.free_block_count += (i + 1);
 		block_write(fs, i, 0, &sb);
 	}
-
-	// 현재 group descriptor의 free_blocks_count를 해제된 블록 개수만큼 증가
-	fs->gd.free_blocks_count += (i+1);
 
 	return;
 }
@@ -1850,6 +1860,12 @@ int ext2_rmdir(EXT2_NODE* dir)
 				//디렉터리의 아이노드의 데이터 블럭이 0이라는건, 할당된 데이터 블럭이 없다는 뜻. 즉 디렉터리안에 아무것도 없으니 그냥 디렉터리 엔트리 지우면된다.
 				//여기까지 온거면 연결된게 없다는 뜻 삭제진행
 
+				//inode 연결된 데이터 할당 해제
+				process_meta_data_for_block_free(dir->fs, dir->entry.inode);
+				get_inode(_dir->fs, _dir->entry.inode, &dir_inode);
+				dir_inode.links_count = 0;
+				set_inode_onto_inode_table(_dir->fs, _dir->entry.inode, &dir_inode);
+
 				//아이노드 비트맵 수정: 아이노드 비트맵 비트 사용가능 표시
 				block_group_number = GET_INODE_GROUP(_dir->entry.inode); //아이노드 속한 그룹 알아냄
 				ZeroMemory(block, MAX_BLOCK_SIZE);
@@ -1885,4 +1901,5 @@ int ext2_rmdir(EXT2_NODE* dir)
 	}
 	else
 		return EXT2_ERROR; //삭제하려는 디렉터리의 아이노드 정보 읽어오기 실패
+
 }
