@@ -1892,4 +1892,5 @@ int ext2_rmdir(EXT2_NODE* dir)
 	}
 	else
 		return EXT2_ERROR; //삭제하려는 디렉터리의 아이노드 정보 읽어오기 실패
+
 }
