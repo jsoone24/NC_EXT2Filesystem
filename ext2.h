@@ -36,10 +36,10 @@
 #define DIR_ENTRY_OVERWRITE		1				//뭘까?
 //디렉터리 엔트리 관리시 필요한 필드. 이름쪽에 들어간다.
 
-#define GET_INODE_GROUP(x)		((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS )	// 아이노드가 속한 그룹 리턴
+#define GET_INODE_GROUP(x)		((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS )	//아이노드가 속한 그룹 리턴
 #define SQRT(x)  				( (x) * (x)  )
 #define TRI_SQRT(x)				( (x) * (x) * (x) )
-#define WHICH_GROUP_BLONG(x)	(((x) - 1)/( NUMBER_OF_INODES / NUMBER_OF_GROUPS ))	// ?
+#define WHICH_GROUP_BLONG(x)	((x) - 1)/( NUMBER_OF_SECTORS/ NUMBER_OF_GROUPS )	//데이터 블록이 속한 그룹 번호 리턴
 
 #define TSQRT(x) 				((x)*(x)*(x))
 #define GET_INODE_FROM_NODE(x) 	((x)->entry.inode)	// EXT2_NODE의 inode number return
