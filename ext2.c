@@ -94,7 +94,7 @@ int ext2_write(EXT2_NODE *file, unsigned long offset, unsigned long length, cons
 			break;
 
 		buffer += copyLength;
-		currentOffset += copyLength;
+   		currentOffset += copyLength;
 	}
 
 	node.size = MAX(currentOffset, node.size); // 새로 쓴 영역과 기존 파일의 크기 중 큰 값을 파일 크기로 설정
@@ -680,14 +680,13 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 			block*=(blockSize/4);			// 다음 간접 블록으로 넘어감으로 가르킬 수 있는 블록의 개수 업데이트
 		}
 
-		if (inode.block[count-1]<1)	
+		if (inode.block[count]<1)	
 		{
-			printf("The block is not allocated\n");
 			return inode_data_empty;
 		}
 	}
 
-	get_block_location(fs, inode.block[count-1], groupNumber, groupOffset);	// 블록 번호로 블록의 위치 찾아 인자에 저장
+	get_block_location(fs, inode.block[count], groupNumber, groupOffset);	// 블록 번호로 블록의 위치 찾아 인자에 저장
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);									// 버퍼 초기화
 
 	if(block_read(fs, *groupNumber, *groupOffset, blockBuffer))			// 간접 블록에서 가르키는 첫 번째 블록을 읽어옴
@@ -720,7 +719,6 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 	}
 	
 	*blockOffset=offset;
-
 	return EXT2_SUCCESS;
 }
 
@@ -779,7 +777,6 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 			memcpy(blockNumber, &(blockBuffer[(blockOffset-1)*4]),4);	// 마지막으로 읽어온 블록에서 4byte를 읽어 blockNumber 변수에 저장
 			if ((*blockNumber)<1)
 			{
-				printf("The block is not allocated\n");
 				return inode_data_empty;
 			}
 			return (*blockNumber);
@@ -1255,12 +1252,10 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		printf("Invalid inode number\n");
 		return EXT2_ERROR;
 	}
-
+	 
 	inodeBuffer = (INODE *)malloc(sizeof(INODE));
 	ZeroMemory(inodeBuffer, sizeof(INODE));	
 	get_inode(fs, inode_num, inodeBuffer);
-	printf("\tinode_num = %d\n", inode_num);
-	printf("\tinodeBuffer->block[0] = %d\n", inodeBuffer->block[0]);
 	while(get_data_block_at_inode(fs,*(inodeBuffer),checkFree)!=inode_data_empty)			// 아이노드에서 빈 데이터 블록을 찾을 때 까지
 	{																						// get_data_block_at_inode 함수 호출
 		if(checkFree>maxNumber)
@@ -1280,8 +1275,9 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 			return EXT2_ERROR;
 		}
 		memcpy(&((*inodeBuffer).block[12]), &available_block, 4);		// 간접블록에 available_block 값 대입
-
-		if (set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
+		printf("inode buffer[12]: %d\n",(*inodeBuffer).block[12]);
+		(*inodeBuffer).blocks++;
+		if (set_inode_onto_inode_table(fs, inode_num, inodeBuffer))	// 수정한 아이노드 업데이트
 		{
 			return EXT2_ERROR;
 		}
@@ -1297,7 +1293,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		}
 		memcpy(&((*inodeBuffer).block[13]), &available_block, 4);		// 간접블록에 available_block 값 대입
 		(*inodeBuffer).blocks++;
-		if (set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
+		if (set_inode_onto_inode_table(fs, inode_num, inodeBuffer))	// 수정한 아이노드 업데이트
 		{
 			return EXT2_ERROR;
 		}
@@ -1313,7 +1309,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 		}
 		memcpy(&((*inodeBuffer).block[14]), &available_block, 4);		// 간접블록에 available_block 값 대입
 		(*inodeBuffer).blocks++;
-		if (set_inode_onto_inode_table(fs, inode_num, &inodeBuffer))	// 수정한 아이노드 업데이트
+		if (set_inode_onto_inode_table(fs, inode_num, inodeBuffer))	// 수정한 아이노드 업데이트
 		{
 			return EXT2_ERROR;
 		}
@@ -1324,6 +1320,7 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 	if(checkFree<13)																	// 직접 블록이 비어있을 경우
 	{
 		available_block = get_available_data_block(fs, inode_num);
+		printf("%d\n", available_block);
 		if(available_block<0)					// 할당 가능한 데이터 블록 번호 읽어옴
 		{
 			printf("No empty block\n");
@@ -1358,18 +1355,20 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 					return EXT2_ERROR;
 				}
 
-				if(available_block = get_available_data_block(fs, inode_num)<0)						// 할당 가능한 데이터 블록 번호 읽어옴
+				available_block = get_available_data_block(fs, inode_num);
+				if (available_block < 0)							// 할당 가능한 데이터 블록 번호 읽어옴
 				{
 					printf("No empty block\n");
 					return EXT2_ERROR;
 				}
 
 				memcpy( &(blockBuffer[(blockOffset-1)*4]), &available_block, 4);
+				(*inodeBuffer).blocks++;
 				if(block_write(fs, groupNumber, groupOffset, blockBuffer))
 				{
 					return EXT2_ERROR;
 				}
-				process_meta_data_for_block_used(fs, available_block,0 );	// 해당 함수로 이동해서 제안을 읽어봐 주세요
+				process_meta_data_for_block_used(fs, inode_num, available_block);	// 해당 함수로 이동해서 제안을 읽어봐 주세요
 
 				if(get_indirect_block_location_at_inode(fs, *(inodeBuffer), checkFree, &groupNumber, &groupOffset, &blockOffset)==EXT2_SUCCESS)
 				{
@@ -1378,39 +1377,45 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 						return EXT2_ERROR;
 					}
 
-					if(available_block = get_available_data_block(fs, inode_num)<0)						// 할당 가능한 데이터 블록 번호 읽어옴
+					available_block = get_available_data_block(fs, inode_num);
+					if (available_block < 0)							// 할당 가능한 데이터 블록 번호 읽어옴
 					{
 						printf("No empty block\n");
 						return EXT2_ERROR;
 					}
 
 					memcpy( &(blockBuffer[(blockOffset-1)*4]), &available_block, 4);
+					(*inodeBuffer).blocks++;
 					if(block_write(fs, groupNumber, groupOffset, blockBuffer))
 					{
 						return EXT2_ERROR;
 					}
+					process_meta_data_for_block_used(fs, inode_num, available_block);	// 해당 함수로 이동해서 제안을 읽어봐 주세요
 					break;
 				}
 			}
 		}
 		else
 		{
-			if(block_read(fs, groupNumber, groupOffset, blockBuffer))	
-			{																	
-				return EXT2_ERROR;
-			}
-			if(available_block = get_available_data_block(fs, inode_num)<0)						// 할당 가능한 데이터 블록 번호 읽어옴
+			if (block_read(fs, groupNumber, groupOffset, blockBuffer))
 			{
-				printf("No empty block\n");					
 				return EXT2_ERROR;
 			}
 
-			memcpy( &(blockBuffer[(blockOffset-1)*4]), &available_block, 4);
-			if(block_write(fs, groupNumber, groupOffset, blockBuffer))
+			available_block = get_available_data_block(fs, inode_num);
+			if (available_block < 0)							// 할당 가능한 데이터 블록 번호 읽어옴
+			{
+				printf("No empty block\n");
+				return EXT2_ERROR;
+			}
+
+			memcpy(&(blockBuffer[(blockOffset-1) * 4]), &available_block, 4);
+			(*inodeBuffer).blocks++;
+			if (block_write(fs, groupNumber, groupOffset, blockBuffer))
 			{
 				return EXT2_ERROR;
 			}
-			process_meta_data_for_block_used(fs, available_block,0 );	// 해당 함수로 이동해서 제안을 읽어봐 주세요
+			process_meta_data_for_block_used(fs, inode_num, available_block);	// 해당 함수로 이동해서 제안을 읽어봐 주세요
 		}
 		
 	}
