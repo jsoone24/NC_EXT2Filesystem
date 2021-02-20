@@ -1146,11 +1146,13 @@ int ext2_format(DISK_OPERATIONS *disk) //디스크를 ext2파일 시스템으로
 	{
 		sb.block_group_number = gi;
 
+		// super block
 		ZeroMemory(sector, sizeof(sector));
 		memcpy(sector, &sb, sizeof(sb));
 
 		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE, sector);
 
+		// group descriptor
 		ZeroMemory(sector, sizeof(sector));
 		for (j = 0; j < NUMBER_OF_GROUPS; j++)
 		{
@@ -1570,14 +1572,13 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	BYTE	mask = 1;
 
 	// 모든 super block의 free_block_count를 1 감소
-	sb = (EXT2_SUPER_BLOCK *)malloc(sizeof(EXT2_SUPER_BLOCK));
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
 		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
 		block_read(fs, i, 0, sbBuffer);
 		sb = (EXT2_SUPER_BLOCK *)sbBuffer;
 		sb->free_block_count--;
-		memcpy(sbBuffer, &sb, sizeof(sbBuffer));
+		memcpy(sbBuffer, sb, sizeof(sbBuffer));
 		block_write(fs, i, 0, sbBuffer);
 	}
 
