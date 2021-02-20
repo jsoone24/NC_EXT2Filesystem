@@ -115,28 +115,48 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 	세 번째 인자일 fileType은 파일이 디렉토리인지 아닌지 등을 판단해 메타데이터 수정 시 사용할 듯
 	*/
 	// 일단은 사용되었을 때(할당)를 가정. 해제는 고려하지 않음
-	retEntry->fs->sb.free_inode_count--;
-	retEntry->fs->gd.free_inodes_count--;
-	retEntry->entry.inode = inode_num;
 
-	BYTE inodeBuffer[sizeof(INODE)];
-	BYTE	blockBuffer[MAX_BLOCK_SIZE];
-	UINT32	offset;
+	BYTE	inodeBuffer[sizeof(INODE)];
+	BYTE	sector[MAX_BLOCK_SIZE];
+	UINT32	i, offset;
 	BYTE	mask = 1;
+	UINT32	groupNum = GET_INODE_GROUP(inode_num);
 
 	if (get_inode(retEntry->fs, inode_num, inodeBuffer) == EXT2_ERROR) // inode number에 대한 메타데이터를 inodeBuffer에 저장
 		return;
 
+	retEntry->entry.inode = inode_num; // retEntry의 아이노드 번호를 inode_num으로 지정
 	((INODE*)inodeBuffer)->mode = fileType; // file type 지정
 	set_inode_onto_inode_table(retEntry->fs, inode_num, (INODE*)inodeBuffer); // 아이노드 테이블 업데이트
 
+	// 디스크의 sb.free_inode_count를 1 감소
+	for (i = 0; i < NUMBER_OF_GROUPS; i++)
+	{
+		ZeroMemory(sector, sizeof(sector));
+		block_read(retEntry->fs, i, 0, sector);
+		((EXT2_SUPER_BLOCK*)sector)->free_inode_count--;
+		block_write(retEntry->fs, i, 0, sector);
+	}
+	// fs의 sb.free_inode_count를 1 감소
+	retEntry->fs->sb.free_inode_count--;
+
+	// 디스크의 gd.free_inodes_count 1 감소
+	ZeroMemory(sector, sizeof(sector));
+	block_read(retEntry->fs, groupNum, 1, sector);
+	((EXT2_GROUP_DESCRIPTOR*)sector[groupNum])->free_inodes_count--;
+	block_write(retEntry->fs, groupNum, 1, sector);
+
+	// fs의 gd.free_blocks_count를 1 감소
+	EXT2_GROUP_DESCRIPTOR *gdp = &(retEntry->fs->gd);
+	gdp[groupNum].free_inodes_count--;
+
 	// Update inode bitmap
-	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	ZeroMemory(sector, MAX_BLOCK_SIZE);
+	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (inode_num - 1) % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	blockBuffer[(inode_num - 1) / 8] |= mask; // 비트맵 수정
-	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
+	sector[(inode_num - 1) / 8] |= mask; // 비트맵 수정
+	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
 }
@@ -1110,8 +1130,13 @@ int ext2_format(DISK_OPERATIONS* disk) //디스크를 ext2파일 시스템으로
 }
 int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry) //파일시스템에서 파일을 새로 생성할때 호출되는 함수.
 {
-	if ((parent->fs->gd.free_inodes_count) == 0)
-		return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
+	EXT2_GROUP_DESCRIPTOR *gdp = &(parent->fs->gd);
+	UINT32 groupNum = GET_INODE_GROUP(parent->entry.inode);
+	if (gdp[groupNum].free_inodes_count == 0)
+		return EXT2_ERROR; //생성가능한 아이노드 공간이 없으면 에러
+
+	// if ((parent->fs->gd.free_inodes_count) == 0)
+	// 	return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
 	UINT32 inode;
 	BYTE name[MAX_NAME_LENGTH] = {
 		0,
@@ -1402,29 +1427,37 @@ void print_buffer(unsigned char* buffer)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UINT32 block_num)
 {
 	// EXT2_SUPER_BLOCK *sb;
-	// EXT2_GROUP_DESCRIPTOR *gd;
 	BYTE	sector[MAX_BLOCK_SIZE];
 	UINT32	i, offset;
 	BYTE	mask = 1;
+	UINT32	groupNum = GET_INODE_GROUP(inode_num);
 
-	// 디스크 데이터 수정
+	// 디스크의 sb.free_block_count를 1 감소
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
-		ZeroMemory(sector, sizeof(EXT2_SUPER_BLOCK));
+		ZeroMemory(sector, sizeof(sector));
 		block_read(fs, i, 0, sector);
 		((EXT2_SUPER_BLOCK*)sector)->free_block_count--;
 		// sb = (EXT2_SUPER_BLOCK *)sector;
 		// sb->free_block_count--;
 		// memcpy(sector, sb, MAX_BLOCK_SIZE);
 		block_write(fs, i, 0, sector);
-
-		// group descriptor의 free_blocks_count를 1 감소
-		ZeroMemory(sector, MAX_BLOCK_SIZE);
 	}
-	fs->sb.free_block_count--; // fs의 super block의 free_block_count를 1 감소
+	// fs의 sb.free_block_count를 1 감소
+	fs->sb.free_block_count--;
+
+	// 디스크의 gd.free_blocks_count를 1 감소
+	ZeroMemory(sector, sizeof(sector));
+	block_read(fs, groupNum, 1, sector);
+	((EXT2_GROUP_DESCRIPTOR*)sector[groupNum])->free_blocks_count--;
+	block_write(fs, groupNum, 1, sector);
+
+	// fs의 gd.free_blocks_count를 1 감소
+	EXT2_GROUP_DESCRIPTOR *gdp = &(fs->gd);
+	gdp[groupNum].free_blocks_count--;
 
 	// Update data block bitmap
-	ZeroMemory(sector, MAX_BLOCK_SIZE);
+	ZeroMemory(sector, sizeof(sector));
 	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
 	offset = block_num % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
