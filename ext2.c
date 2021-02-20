@@ -289,10 +289,10 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 			if(block[i] != mask)	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
 			{
 				temp = block[i];
-				for(j = 0; (j < 8) && ((temp & 1) == 1); j++) //block[i]가 들어간 temp와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+				for(j = 0; (j < 8) & ((temp & 1) == 1); j++) //block[i]가 들어간 temp와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
 					temp >>= 1;
 
-				result = (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + BOOT_BLOCK + _fs->sb.first_data_block_each_group;	//블럭 번호 계산해서 저장.
+				result = (_fs->sb.block_per_group * block_group_number) + (i * 8) + j;	//블럭 번호 계산해서 저장.
 				
 				return result;
 			}
@@ -640,7 +640,7 @@ int read_root_block(EXT2_FILESYSTEM *fs, BYTE *sector) //루트 디렉터리에 
 	return block_read(fs, 0, rootBlock, sector); // 루트 디렉터리의 데이터 블록의 데이터를 sector 버퍼에 저장
 }
 
-
+/*
 void get_block_location(EXT2_FILESYSTEM* fs, const UINT32 blockNumber, UINT32 *groupNumber, UINT32 *offset)
 {	// 블록 번호를 받아서 블록 그룹 번호와 그룹 내 offset을 인자에 저장  by seungmin
 	*groupNumber = blockNumber/fs->sb.block_per_group;		// 블록 번호의 블록 그룹 번호
@@ -697,23 +697,23 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 	}
 	
 	UINT32 temp;	
-	UINT32 *blockNumber;	// 블록 번호를 저장하기 위한 변수
+	UINT32 blockNumber = 0;	// 블록 번호를 저장하기 위한 변수
 	for (int i=0;i<count-12;i++)										
-	{	
-		ZeroMemory(blockNumber,4);
+	{
 		block/=(blockSize/4);		
 		temp=(offset-1)/block;										// 해당 블록에서 4byte를 읽을 위치 계산
-		memcpy(blockNumber,&(blockBuffer[temp*4]),4);				// 4byte를 읽어 bloclkNumber 변수에 읽은 블록 번호 저장
-		if ((*blockNumber)<1)										// 블록 번호가 1보다 작으면 에러 처리
+		blockNumber = blockBuffer[temp * 4];
+		//memcpy(blockNumber,&(blockBuffer[temp*4]),4);				// 4byte를 읽어 bloclkNumber 변수에 읽은 블록 번호 저장
+		if ((blockNumber)<1)										// 블록 번호가 1보다 작으면 에러 처리
 		{
 			printf("The block is not allocated\n");
 			*blockOffset=temp+1;
 			return inode_data_empty;
 		}
-		get_block_location(fs, *blockNumber, groupNumber, groupOffset);
+		get_block_location(fs, blockNumber, groupNumber, groupOffset);
 		ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);		
 		
-		if(block_read(fs, *groupNumber, *groupOffset, blockBuffer))	// 읽어온 블록 번호를 이용해 간접 블록에서 가르키는 다음 블록을 읽어옴
+		if(block_read(fs, 0, *groupOffset, blockBuffer))	// 읽어온 블록 번호를 이용해 간접 블록에서 가르키는 다음 블록을 읽어옴
 		{																	
 			return EXT2_ERROR;
 		}
@@ -725,6 +725,7 @@ int get_indirect_block_location_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT3
 }
 
 // inode의 number번째 데이터 블록 번호를 return
+
 int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
 {	
 	UINT32 blockSize;			// 블록 크기
@@ -788,12 +789,95 @@ int get_data_block_at_inode(EXT2_FILESYSTEM *fs, INODE inode, UINT32 number)	//i
 	추가 - ext2 write에서 i=1 후 ++i를 하는 이유 -> 위의 주석에서 볼 수 있듯 인자로 넘어오는 number는 인덱스가 아니라 몇 번째 블록인지를 뜻 하는 것 같다
 	ext2_write에서는 currentBlock으로 i_block[0]의 값을 넣은 후 다음 블록을 찾을 때 이 함수의 number 인자로 i=1 후 ++i를 해서 2를 넘겨주게 되는데,
 	이것이 2번 째 블록을 읽어달라는 요청을 의미하는 것 같다(i_block[0] 값을 가져옴으로써 첫 번째 블록은 이미 읽었음으로)
-	seungmin */
+	seungmin 
   
 	//만약 number이 1~12이 들어오면 직접 데이터 블록 받아서 리턴
 	//13이면 간접 블록 들어가서 안에 어떤 데이터 블록을 가리키는지 가져올 필요가 있음
 	//만약 넘버가 14라면, 이중 간접 블록이 아니라 아이노드 13번째 구조체가 가리키는 간접 블록을 먼저 들어가서 거기서 13번재 다음 블록을 찾을 것으로 예상
 	//블록 그룹 계산하지 않은 그냥 블록 그룹 내에서 블록 번호 리턴하는 것으로 생각
+}
+*/
+
+int get_data_block_at_inode(EXT2_FILESYSTEM* fs, INODE inode, UINT32 number)	//inode : 어떤 파일의 아이노드, number : inode 구조체의 block필드에서 몇번째 데이터 블록을 불러올지 결정하는 변수 인듯
+{
+	UINT32 available_block = 0;			//새로 할당할 데이터 블록 번호
+	UINT32 new_indirect_block = 0;		//새로 할당할 간접 블록 번호
+	UINT32 indirect_boundary = 12;		//간접 블록이 시작하는 경계
+	UINT32 double_indirect_boundary = indirect_boundary + (MAX_BLOCK_SIZE / 4);	//이중간접 블록이 시작하는 경계
+	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(MAX_BLOCK_SIZE / 4);	//삼중간접 블럭이 시작하는 경계
+	UINT32 max_block_num = triple_indirect_boundary + TSQRT(MAX_BLOCK_SIZE / 4);
+	UINT32 parent_block_num = 0;		//간접 블록 들어갈때 들어가기 전 블럭 번호 저장
+	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
+	BYTE block[MAX_BLOCK_SIZE];
+	UINT32 recur_num = 0;				//recursion 돌아야 하는 횟수
+	UINT32 inode_block_offset = 0;		//간접 블럭을 재귀를 돌며 쉽게 계산하기 위해 number에서 12를 뺀값
+	UINT32 offset = 0;					//간접블럭에서의 위치
+
+	if (number < 1 || number > max_block_num)
+	{
+		printf("Invalid block number\n");
+		return EXT2_ERROR;
+	}
+
+	number -= 1;	//아이노드가 1번 기준으로 들어오기때문에 계산 쉽게 하기 위해서 0번부터 시작으로 맞춰준다
+
+	if (number < 12)	//직접 블록에 데이터 요청시
+	{
+		if (inode.block[number] != 0)	//직접 블록에 데이터가 저장되어 있는지 확인
+			return inode.block[number];
+		return inode_data_empty;	//데이터 할당되어 있지 않다는 뜻으로 비어있다는거 리턴
+	}
+	else	//간접블록 할당 요청시
+	{
+		if (number >= triple_indirect_boundary)		//요청한 블럭이 어느 간접 블럭에 있는지 확인, 삼중 간접블럭에 있음
+		{
+			recur_num = 2;
+			parent_block_num = inode.block[14];
+		}
+		else if (number >= double_indirect_boundary) //요청한 블럭이 어느 간접 블럭에 있는지 확인, 이중 간접블럭에 있음
+		{
+			recur_num = 1;
+			parent_block_num = inode.block[13];
+		}
+		else if (number >= indirect_boundary)		//요청한 블럭이 어느 간접 블럭에 있는지 확인, 간접블럭에 있음
+		{
+			recur_num = 0;
+			parent_block_num = inode.block[12];
+		}
+		inode_block_offset = number - 12;						//찾아야하는 block의 offset. recursion할때마다 간접블럭에 맞게 숫자가 계속 바뀜
+
+		while(recur_num >= 0)
+		{
+			if (parent_block_num == 0)	//부모 블럭이 비어있으면 아이노드 데이터 할당 되어 있지 않다고 리턴
+			{
+				return inode_data_empty;
+			}
+
+			ZeroMemory(block, MAX_BLOCK_SIZE);	//할당되어 있으면 부모 데이터 읽어옴
+			block_read(fs, 0, parent_block_num, block);
+
+			switch (recur_num)
+			{
+			case 0:	//최후 간접블럭에 도달한 경우 offset == 0~255 범위
+				if (((UINT32*)block)[inode_block_offset] != 0)	//데이터 블럭이 할당되어 있는 경우
+				{
+					return ((UINT32*)block)[inode_block_offset];
+				}
+				return inode_data_empty;
+			case 1:	//삼중간접블럭의 이중간접블럭, 아니면 원래 이중간접블럭에 도달한 경우 offset == 
+				offset = (inode_block_offset - 256) / 256;
+				inode_block_offset = inode_block_offset % 256;
+				break;
+			case 2:
+				offset = (inode_block_offset - 256 - SQRT(256)) / SQRT(256);
+				inode_block_offset = inode_block_offset % SQRT(256);
+				break;
+			}
+			parent_block_num = ((UINT32*)block)[offset];
+			recur_num--;
+		}
+	}
+	return EXT2_ERROR;
 }
 
 int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을 읽는 함수 인것 같다. root는 읽은 슈퍼블록을 담을 곳을 인자로 넘겨 받음
@@ -1434,65 +1518,132 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운 데이터블록 할당
 {
 	INODE inode;
-	UINT32 available_block = 0;		//할당 가능한 데이터 블록 번호
+	UINT32 available_block = 0;			//새로 할당할 데이터 블록 번호
+	UINT32 new_indirect_block = 0;		//새로 할당할 간접 블록 번호
 	UINT32 blockSize = MAX_BLOCK_SIZE;	//블록 크기 설정
 	UINT32 indirect_boundary = 12;		//간접 블록이 시작하는 경계
-	UINT32 double_indirect_boundary = indirect_boundary + (blockSize / 4);	//이중간접 블록이 시작하는 경계
-	UINT32 triple_indirect_boundary = double_indirect_boundary + ((blockSize / 4) * (blockSize / 4));	//삼중간접 블럭이 시작하는 경계
-	UINT32 max_block_num = indirect_boundary + double_indirect_boundary + triple_indirect_boundary + ((blockSize / 4) * (blockSize / 4) * (blockSize / 4));
+	UINT32 double_indirect_boundary = indirect_boundary + (MAX_BLOCK_SIZE / 4);	//이중간접 블록이 시작하는 경계
+	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(MAX_BLOCK_SIZE / 4);	//삼중간접 블럭이 시작하는 경계
+	UINT32 max_block_num = triple_indirect_boundary + TSQRT(MAX_BLOCK_SIZE / 4);
+	UINT32 parent_block_num = 0;		//간접 블록 들어갈때 들어가기 전 블럭 번호 저장
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
 	BYTE block[blockSize];
-	UINT32 recur_num = 0;	//recursion 돌아야 하는 횟수
+	UINT32 recur_num = 0;				//recursion 돌아야 하는 횟수
+	UINT32 inode_block_offset = 0;		//재귀를 쉽게 돌기 위해 하는 것
+	UINT32 inode_array_offset = 0;		//block배열에서 어떤 간접 블록 들어가야되는지 가리키는 변수
 
 	if (get_inode(fs, inode_num, &inode)) //아이노드 가져오기 실패시 에러 리턴
-		return EXT2_ERROR;
-	available_block = get_available_data_block(fs, inode_num);
-	if (available_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
 		return EXT2_ERROR;
 
 	if (inode.blocks < 12)	//지금 아이노드에 데이터 블럭이 몇개 할당되어있는지 계산 12개 미만이면 12개까지 직접블럭이니 through_indirect없이 할당해도 됨.
 	{
+		available_block = get_available_data_block(fs, inode_num);
+		if (available_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
+			return EXT2_ERROR;
+
+		process_meta_data_for_block_used(fs, inode_num, available_block);
+
 		inode.block[inode.blocks] = available_block;	//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
 		inode.blocks++;									//inode.blocks에 할당된 데이터 블럭 개수 증가.
-		process_meta_data_for_block_used(fs, inode_num, available_block);	//블럭 사용한다고 기록
 		set_inode_onto_inode_table(fs, inode_num, &inode);					//아이노드 테이블 업데이트
 
-		return available_block;	//할당한 블럭 번호를 리턴
-/*	}
+		return EXT2_SUCCESS;	//할당한 블럭 번호를 리턴
+	}
 	else	//위에는 직접블록 할당 구간, 여기는 간접블럭 할당 구간
 	{
 		if (inode.blocks >= triple_indirect_boundary)	//블럭수가 삼중블럭 경계보다 크다는건 삼중 간접 블럭에 들어가야한다는 뜻, 경계에 걸치면 블럭 할당 필요
 		{
-			recur_num = 3;
-			block_read(fs, 0, inode.block[14], block);
+			recur_num = 2;
+			inode_block_offset = inode.blocks - 12;
+			parent_block_num = inode.block[14];
+			inode_array_offset = 14;
 		}
 		else if (inode.blocks >= double_indirect_boundary) //블럭수가 삼중블럭 경계보단 작지만 이중블럭 경계보다 크다는건 이중 간접 블럭에 들어가야한다는 뜻, 경계에 걸치면 블럭 할당 필요
 		{
-			recur_num = 2;
-			block_read(fs, 0, inode.block[13], block);
+			recur_num = 1;
+			inode_block_offset = inode.blocks - 12;
+			parent_block_num = inode.block[13];
+			inode_array_offset = 13;
 		}
 		else if (inode.blocks >= indirect_boundary)	//블럭수가 이중블럭 경계보다 크다는 건 간접 블럭에 들어가야 한다는 뜻, 경계에 걸치면 블럭 할당 필요
 		{
-			recur_num = 1;
-			block_read(fs, 0, inode.block[12], block);
-		}		
+			recur_num = 0;
+			inode_block_offset = inode.blocks - 12;
+			parent_block_num = inode.block[12];
+			inode_array_offset = 12;
+		}
 
-		return through_indirect(fs, inode_num, inode, block, recur_num, recur_num, available_block);
+		if ((inode.blocks == indirect_boundary) || (inode.blocks == double_indirect_boundary) || (inode.blocks == triple_indirect_boundary))	//경계에 걸쳐있다는건 간접 블럭 할당 필요
+		{
+			new_indirect_block = get_available_data_block(fs, inode_num);
+			if (new_indirect_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
+				return EXT2_ERROR;
+			parent_block_num = new_indirect_block;
+			inode.block[inode_array_offset] = new_indirect_block;					//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
+			process_meta_data_for_block_used(fs, inode_num, new_indirect_block);	//블럭 사용한다고 기록
+			set_inode_onto_inode_table(fs, inode_num, &inode);
+		}
+
+		ZeroMemory(block, MAX_BLOCK_SIZE);
+		block_read(fs, 0,parent_block_num, block);
+
+		available_block = get_available_data_block(fs, inode_num);	//최종적으로 할당할 블럭
+		if (available_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
+			return EXT2_ERROR;
+
+		process_meta_data_for_block_used(fs, inode_num, available_block);
+		
+		if (!through_indirect(fs, inode_num, inode, block, recur_num, recur_num, available_block, inode_block_offset, parent_block_num));	//데이터 블록 할당 성공시
+			return EXT2_SUCCESS;
+		
+		return EXT2_ERROR;
 	}
 }
 
-UINT32 through_indirect(EXT2_FILESYSTEM* fs, UINT32 inode_num, INODE inode, BYTE* block, UINT32 recur_num, const UINT32 static_recur_num, UINT32 available_block)
+//간접블록 들어가는 재귀함수 block에 간접 데이터 블럭이 계속 넘어감. recur_num은 남은 재귀 횟수, static_recur_num은 전체 돌아야되는 횟수, available_block은 계속 받아온 빈 공간, inode_block_offset은 각 간접블록 들어갈 때마다 위치
+INT32 through_indirect(EXT2_FILESYSTEM* fs, const UINT32 inode_num, INODE inode, UINT32* block, UINT32 recur_num, const UINT32 static_recur_num, const UINT32 available_block, UINT32 inode_block_offset, UINT32 parent_block_num)
 {
+	UINT32 offset = 0;			//간접블럭에서의 위치
+	UINT32 new_indirect_block;	//간접이나, 이중간접 블록 새로 할당해야 할때에 사용
+
 	if (recur_num == 0)
 	{
+		block[inode_block_offset] = available_block;				//가장 최후의 간접 블록에 사용 표시
+		block_write(fs, 0, parent_block_num, block);						//간접 블록 디스크에 저장
+		inode.blocks++;
+		set_inode_onto_inode_table(fs, inode_num, &inode);					//아이노드 테이블 업데이트
+
+		return EXT2_SUCCESS;	//성공여부 리턴
 	}
-	else if (recur_num == 1)
+	else if (recur_num == 1) //이중간접 블록에서 간접 블록 위치 계산
 	{
+		offset = (inode_block_offset - 256) / 256;
+		inode_block_offset = inode_block_offset % 256;	//간접 블럭 들어가서 위치
 	}
-	else if (recur_num == 2)
+	else if (recur_num == 2)	//삼중간접 블록에서 이중 간접 블록 위치 계산
 	{
+		offset = (inode_block_offset - 256 - SQRT(256)) / SQRT(256);
+		inode_block_offset = inode_block_offset % SQRT(256);
 	}
-	else if (recur_num == 3);*/
+
+	if (block[offset] == 0)	//연결된 이중 간접 데이터블럭이 없다는 뜻으로 할당 해줘야 함
+	{
+		new_indirect_block = get_available_data_block(fs, inode_num);	//간접 블록 저장위한 블럭 할당받음
+		if (new_indirect_block == EXT2_ERROR)				//할당가능한 데이터 블럭이 없을때 에러
+			return EXT2_ERROR;
+		block[offset] = new_indirect_block;					//새로 할당된 블럭을 부모 블럭에 씀
+		block_write(fs, 0, parent_block_num, block);		//부모 블럭 업데이트
+		process_meta_data_for_block_used(fs, inode_num, new_indirect_block);	//새롭게 연결한 간접 블럭 사용한다고 기록
+	}
+	parent_block_num = block[offset];
+	block_read(fs, 0, parent_block_num, block);
+	recur_num--;
+
+	if(!through_indirect(fs, inode_num, inode, block, recur_num, static_recur_num, available_block, inode_block_offset, parent_block_num));	//데이터 블록 할당 성공시
+	{
+		return EXT2_SUCCESS;
+	}
+	return EXT2_ERROR;	//데이터 블록 할당 실패 시
 }
 
 int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfSectors, UINT32 bytesPerSector) //슈퍼블록 포인터와 섹터 개수 섹터당 바이트 수를 받으면 슈퍼블록 구조체를 채워넣는다.
