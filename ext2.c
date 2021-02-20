@@ -249,7 +249,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 	있다면 block_bitmap에서 빈 블록 번호를 return
  	expand_block 함수에서는 return 받은 블록 번호를 아이노드의 block 필드의 비어 있는 인덱스에 연결하고, process_meta_data_for_block_used를 통해 메타데이터 수정
 	*/
-
+	gd.freee_b
 	UINT32 result, inode_which_block_group;	//result : 사용가능한 블록 번호를 저장할 변수, inode_which_block_group : 인자로 받은 아이노드가 어느 블록 그룹에 있는지
 	UINT32 block_group_number = 0;			//블럭 그룹 번호 저장
 	BYTE block[MAX_BLOCK_SIZE];				//블럭 비트맵을 가져와서 저장할 공간.
@@ -1080,7 +1080,10 @@ int ext2_format(DISK_OPERATIONS *disk) //디스크를 ext2파일 시스템으로
 		ZeroMemory(sector, sizeof(sector));
 		for (j = 0; j < NUMBER_OF_GROUPS; j++)
 		{
-			memcpy(sector + j * sizeof(gd), &gd, sizeof(gd));
+			if (j == 0)
+				memcpy(sector + j * sizeof(gd), &gd, sizeof(gd));
+			else
+				memcpy(sector + j * sizeof(gd_another_group), &gd_another_group, sizeof(gd_another_group));
 		}
 		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + 1, sector);
 
@@ -1222,8 +1225,10 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 			new_indirect_block = get_available_data_block(fs, inode_num);
 			if (new_indirect_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
 				return EXT2_ERROR;
+
 			parent_block_num = new_indirect_block;
 			inode.block[inode_array_offset] = new_indirect_block;					//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
+
 			process_meta_data_for_block_used(fs, inode_num, new_indirect_block);	//블럭 사용한다고 기록
 			set_inode_onto_inode_table(fs, inode_num, &inode);
 		}
@@ -1421,9 +1426,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 	{
 		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
 		block_read(fs, i, 0, sbBuffer);
-		sb = (EXT2_SUPER_BLOCK *)sbBuffer;
-		sb->free_block_count--;
-		memcpy(sbBuffer, &sb, sizeof(sbBuffer));
+		((EXT2_SUPER_BLOCK*)sbBuffer)->free_block_count--;
 		block_write(fs, i, 0, sbBuffer);
 	}
 
