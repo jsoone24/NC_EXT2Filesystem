@@ -1401,31 +1401,35 @@ void print_buffer(unsigned char* buffer)
 // block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UINT32 block_num)
 {
-	BYTE	sbBuffer[MAX_BLOCK_SIZE];
-	BYTE	blockBitmap[MAX_BLOCK_SIZE];
+	// EXT2_SUPER_BLOCK *sb;
+	// EXT2_GROUP_DESCRIPTOR *gd;
+	BYTE	sector[MAX_BLOCK_SIZE];
 	UINT32	i, offset;
 	BYTE	mask = 1;
 
-	// 모든 super block의 free_block_count를 1 감소
+	// 디스크 데이터 수정
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
-		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
-		block_read(fs, i, 0, sbBuffer);
-		(*((EXT2_SUPER_BLOCK*)sbBuffer)).free_block_count--;
-		block_write(fs, i, 0, sbBuffer);
-	}
-	fs->sb.free_block_count--;
+		ZeroMemory(sector, sizeof(EXT2_SUPER_BLOCK));
+		block_read(fs, i, 0, sector);
+		((EXT2_SUPER_BLOCK*)sector)->free_block_count--;
+		// sb = (EXT2_SUPER_BLOCK *)sector;
+		// sb->free_block_count--;
+		// memcpy(sector, sb, MAX_BLOCK_SIZE);
+		block_write(fs, i, 0, sector);
 
-	// 현재 group descriptor의 free_blocks_count를 1 감소
-	fs->gd.free_blocks_count--;
+		// group descriptor의 free_blocks_count를 1 감소
+		ZeroMemory(sector, MAX_BLOCK_SIZE);
+	}
+	fs->sb.free_block_count--; // fs의 super block의 free_block_count를 1 감소
 
 	// Update data block bitmap
-	ZeroMemory(blockBitmap, MAX_BLOCK_SIZE);
-	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 sector 버퍼에 저장
+	ZeroMemory(sector, MAX_BLOCK_SIZE);
+	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
 	offset = block_num % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	blockBitmap[block_num / 8] |= mask; // 비트맵 수정
-	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+	sector[block_num / 8] |= mask; // 비트맵 수정
+	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
 
@@ -1437,45 +1441,6 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 	  메타데이터를 수정해야 할 것 같은데 그럴 바에는 애초에 블록 할당이나 해제하는 함수에서 이 작업도 같이하는 편이 나을 것 같음
 	  seungmin */
 	  //inode번호로 아이노드 테이블에서 아이노드를 가져옴. 아이노드 데이터블럭에서 가장 마지막 블럭을 비트맵에 사용중이라고 표시 ???
-}
-
-// my
-void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 block_num)
-{
-	EXT2_SUPER_BLOCK *sb;
-	EXT2_GROUP_DESCRIPTOR *gd;
-	BYTE	sector[MAX_BLOCK_SIZE];
-	UINT32	i, offset;
-	BYTE	mask = 1;
-
-	// Update data block bitmap
-	ZeroMemory(sector, MAX_BLOCK_SIZE);
-
-	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
-	offset = block_num % 8; // 섹터 내의 offset 계산
-	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	sector[block_num/8] |= mask; // 비트맵 수정
-	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
-
-	// 디스크 데이터 수정
-	for (i = 0; i < NUMBER_OF_GROUPS; i++)
-	{
-		// super block의 free_block_count를 1 감소
-		ZeroMemory(sector, MAX_BLOCK_SIZE);
-		block_read(fs, i, 0, sector);
-		sb = (EXT2_SUPER_BLOCK *)sector;
-		sb->free_block_count--;
-		memcpy(sector, sb, MAX_BLOCK_SIZE);
-		block_write(fs, i, 0, sector);
-
-		// group descriptor의 free_blocks_count를 1 감소
-		ZeroMemory(sector, MAX_BLOCK_SIZE);
-	}
-
-	// Update fs->sb
-	fs->sb.free_block_count--; // fs의 super block의 free_block_count를 1 감소
-
-	return;
 }
 
 void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
