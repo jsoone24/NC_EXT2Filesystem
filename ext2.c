@@ -268,19 +268,19 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
 		if (gdp[inode_which_block_group].free_blocks_count > 0)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
-			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우. 블럭 비트맵을 참고해서 데이터 블록 받아서 리턴.
+			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우 아이노드가 속한 블럭 그룹을 저장.
 			block_group_number = inode_which_block_group;
 		}
-		else //같은 그룹내에 아이노드를 할당할 공간이 없는 경우.
+		else //같은 그룹내에 데이터 블럭을 할당할 공간이 없는 경우.
 		{
-			for(i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
+			for(i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 데이터 블럭이 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
 				if((gdp[i].free_blocks_count) > 0)
 					break;
-			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 아이노드가 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
+			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 데이터 블럭이 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
 			block_group_number = i;
 		}
 
-		//가장 빨리 비어있는 아이노드 빈자리를 아이노드 비트맵을 통해 구한다.
+		//가장 빨리 비어있는 데이터 블럭 빈자리를 데이터 블럭 비트맵을 통해 구한다.
 		ZeroMemory(block, MAX_BLOCK_SIZE);
 		block_read(_fs, block_group_number, BLOCK_BITMAP, block);	//블럭 비트맵 읽어옴
 	
@@ -289,10 +289,10 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 			if(block[i] != mask)	//block의 i 번째가 0xFF가 아니라면 중간에 빈 공간이 있다는 뜻, if 들어가면 빈공간 찾을 수 있음
 			{
 				temp = block[i];
-				for(j = 0; (j < 8) && ((temp & 1) == 1); j++) //block[i]가 들어간 temp 와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
+				for(j = 0; (j < 8) && ((temp & 1) == 1); j++) //block[i]가 들어간 temp와 1을 and 비트연산 해서 0이면 0이라는 뜻이므로 루프 탈출 아니면 계속 비트 시프트
 					temp >>= 1;
 
-				result = (_fs->sb.block_per_group * block_group_number) + (i * 8) + j;	//아이노드 번호 계산해서 저장.
+				result = (_fs->sb.block_per_group * block_group_number) + (i * 8) + j + BOOT_BLOCK + _fs->sb.first_data_block_each_group;	//블럭 번호 계산해서 저장.
 				
 				return result;
 			}
@@ -1236,6 +1236,7 @@ int ext2_lookup(EXT2_NODE *parent, const char *entryName, EXT2_NODE *retEntry) /
 	return lookup_entry(parent->fs, parent->entry.inode, formattedName, retEntry);
 }
 
+/*
 UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운 데이터블록 할당
 {
 	INODE *inodeBuffer;
@@ -1431,7 +1432,71 @@ UINT32 expand_block(EXT2_FILESYSTEM *fs, UINT32 inode_num) // inode에 새로운
 	해당 아이노드의 block 필드의 비어있는 인덱스에 새로운 데이터 블록 할당
 	seungmin */
 	// 데이터블록 비트맵 업데이트 필요
+
+UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운 데이터블록 할당
+{
+	INODE inode;
+	UINT32 available_block = 0;		//할당 가능한 데이터 블록 번호
+	UINT32 blockSize = MAX_BLOCK_SIZE;	//블록 크기 설정
+	UINT32 indirect_boundary = 12;		//간접 블록이 시작하는 경계
+	UINT32 double_indirect_boundary = indirect_boundary + (blockSize / 4);	//이중간접 블록이 시작하는 경계
+	UINT32 triple_indirect_boundary = double_indirect_boundary + ((blockSize / 4) * (blockSize / 4));	//삼중간접 블럭이 시작하는 경계
+	UINT32 max_block_num = indirect_boundary + double_indirect_boundary + triple_indirect_boundary + ((blockSize / 4) * (blockSize / 4) * (blockSize / 4));
+	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
+	BYTE block[blockSize];
+	UINT32 recur_num = 0;	//recursion 돌아야 하는 횟수
+
+	if (get_inode(fs, inode_num, &inode)) //아이노드 가져오기 실패시 에러 리턴
+		return EXT2_ERROR;
+	available_block = get_available_data_block(fs, inode_num);
+	if (available_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
+		return EXT2_ERROR;
+
+	if (inode.blocks < 12)	//지금 아이노드에 데이터 블럭이 몇개 할당되어있는지 계산 12개 미만이면 12개까지 직접블럭이니 through_indirect없이 할당해도 됨.
+	{
+		inode.block[inode.blocks] = available_block;	//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
+		inode.blocks++;									//inode.blocks에 할당된 데이터 블럭 개수 증가.
+		process_meta_data_for_block_used(fs, inode_num, available_block);	//블럭 사용한다고 기록
+		set_inode_onto_inode_table(fs, inode_num, &inode);					//아이노드 테이블 업데이트
+
+		return available_block;	//할당한 블럭 번호를 리턴
+/*	}
+	else	//위에는 직접블록 할당 구간, 여기는 간접블럭 할당 구간
+	{
+		if (inode.blocks >= triple_indirect_boundary)	//블럭수가 삼중블럭 경계보다 크다는건 삼중 간접 블럭에 들어가야한다는 뜻, 경계에 걸치면 블럭 할당 필요
+		{
+			recur_num = 3;
+			block_read(fs, 0, inode.block[14], block);
+		}
+		else if (inode.blocks >= double_indirect_boundary) //블럭수가 삼중블럭 경계보단 작지만 이중블럭 경계보다 크다는건 이중 간접 블럭에 들어가야한다는 뜻, 경계에 걸치면 블럭 할당 필요
+		{
+			recur_num = 2;
+			block_read(fs, 0, inode.block[13], block);
+		}
+		else if (inode.blocks >= indirect_boundary)	//블럭수가 이중블럭 경계보다 크다는 건 간접 블럭에 들어가야 한다는 뜻, 경계에 걸치면 블럭 할당 필요
+		{
+			recur_num = 1;
+			block_read(fs, 0, inode.block[12], block);
+		}		
+
+		return through_indirect(fs, inode_num, inode, block, recur_num, recur_num, available_block);
+	}
 }
+
+UINT32 through_indirect(EXT2_FILESYSTEM* fs, UINT32 inode_num, INODE inode, BYTE* block, UINT32 recur_num, const UINT32 static_recur_num, UINT32 available_block)
+{
+	if (recur_num == 0)
+	{
+	}
+	else if (recur_num == 1)
+	{
+	}
+	else if (recur_num == 2)
+	{
+	}
+	else if (recur_num == 3);*/
+}
+
 int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfSectors, UINT32 bytesPerSector) //슈퍼블록 포인터와 섹터 개수 섹터당 바이트 수를 받으면 슈퍼블록 구조체를 채워넣는다.
 {
 	ZeroMemory(sb, sizeof(EXT2_SUPER_BLOCK));
