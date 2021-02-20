@@ -68,6 +68,7 @@ int disksim_write( DISK_OPERATIONS* this, SECTOR sector, const void* data )
 		return -1;
 		
 
+	printf("\tdisksim_write address = %x\n", &disk[sector * this->bytesPerSector]);
 	memcpy( &disk[sector * this->bytesPerSector], data, this->bytesPerSector ); 
 	// (입력받은 섹터번호*섹터당 바이트 수)한 주소로부터 한 섹터만큼에 data 대입
 	return 0;

@@ -1779,13 +1779,21 @@ void print_buffer(unsigned char *buffer)
 // block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UINT32 block_num)
 {
-	printf("\n\tprocess_meta_data_for_block_used\n");
-	printf("\tinode_num = %d\tblock_num = %d\n", inode_num, block_num);
 	EXT2_SUPER_BLOCK *sb;
+	EXT2_GROUP_DESCRIPTOR *gd;
 	BYTE	sbBuffer[MAX_BLOCK_SIZE];
 	BYTE	blockBitmap[MAX_BLOCK_SIZE];
 	UINT32	i, offset;
 	BYTE	mask = 1;
+
+	// Update data block bitmap
+	ZeroMemory(blockBitmap, MAX_BLOCK_SIZE);
+
+	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 sector 버퍼에 저장
+	offset = block_num % 8; // 섹터 내의 offset 계산
+	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
+	blockBitmap[block_num/8] |= mask; // 비트맵 수정
+	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
 
 	// 모든 super block의 free_block_count를 1 감소
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
@@ -1798,16 +1806,9 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM *fs, UINT32 inode_num, UIN
 		block_write(fs, i, 0, sbBuffer);
 	}
 
-	// 현재 group descriptor의 free_blocks_count를 1 감소
-	fs->gd.free_blocks_count--;
-
-	// Update data block bitmap
-	ZeroMemory(blockBitmap, MAX_BLOCK_SIZE);
-	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 sector 버퍼에 저장
-	offset = block_num % 8; // 섹터 내의 offset 계산
-	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	blockBitmap[block_num/8] |= mask; // 비트맵 수정
-	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+	// fs 데이터 수정
+	fs->sb.free_block_count--; // fs의 super block의 free_block_count를 1 감소
+	fs->gd.free_blocks_count--; // 현재 group descriptor의 free_blocks_count를 1 감소
 
 	return;
 
@@ -1832,7 +1833,7 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 	UINT32 size = 0;
 
 	inodeBuffer = (INODE *)malloc(sizeof(INODE));
-	ZeroMemory(inodeBuffer, sizeof(INODE));
+	ZeroMemory(inodeBuffer, sizeof(INODE)); // inodeBuffer 0으로 초기화
 	if (get_inode(fs, inode_num, inodeBuffer) == EXT2_ERROR) // inode number에 대한 메타데이터를 inodeBuffer에 저장
 		return;
 
@@ -1851,9 +1852,6 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 
 		ZeroMemory(block, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
 		block_write(fs, 0, num, block);
-
-		// 데이터 블록 그룹의 group descriptor의 free_blocks_count를 해제된 블록 개수만큼 증가
-		(((EXT2_GROUP_DESCRIPTOR*)&(fs->gd)) +	WHICH_GROUP_BLONG(num))->free_blocks_count++;
 	}
 
 	ZeroMemory(inodeBuffer->block, sizeof(block));
@@ -1869,6 +1867,10 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM *fs, UINT32 inode_num)
 		sb.free_block_count += (i + 1);
 		block_write(fs, i, 0, &sb);
 	}
+
+	// fs 데이터 수정
+	fs->sb.free_block_count += (i + 1); // fs의 super block의 free_block_count를 해제된 블록 개수만큼 증가
+	( ((EXT2_GROUP_DESCRIPTOR*)&(fs->gd)) + WHICH_GROUP_BLONG(num) )->free_blocks_count += (i + 1); // 데이터 블록 그룹의 group descriptor의 free_blocks_count를 해제된 블록 개수만큼 증가
 
 	return;
 }
