@@ -115,7 +115,6 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 	세 번째 인자일 fileType은 파일이 디렉토리인지 아닌지 등을 판단해 메타데이터 수정 시 사용할 듯
 	*/
 	// 일단은 사용되었을 때(할당)를 가정. 해제는 고려하지 않음
-
 	BYTE	inodeBuffer[sizeof(INODE)];
 	BYTE	sector[MAX_BLOCK_SIZE];
 	UINT32	i, offset;
@@ -265,7 +264,6 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	있다면 block_bitmap에서 빈 블록 번호를 return
 	expand_block 함수에서는 return 받은 블록 번호를 아이노드의 block 필드의 비어 있는 인덱스에 연결하고, process_meta_data_for_block_used를 통해 메타데이터 수정
 	*/
-
 	UINT32 result, inode_which_block_group;	//result : 사용가능한 블록 번호를 저장할 변수, inode_which_block_group : 인자로 받은 아이노드가 어느 블록 그룹에 있는지
 	UINT32 block_group_number = 0;			//블럭 그룹 번호 저장
 	BYTE block[MAX_BLOCK_SIZE];				//블럭 비트맵을 가져와서 저장할 공간.
@@ -273,7 +271,6 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	const SECTOR BOOT_BLOCK = 1;			//부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
 	EXT2_FILESYSTEM* _fs = fs;
 	EXT2_GROUP_DESCRIPTOR* gdp;				//group descriptor pointer라는 뜻
-	gdp = (EXT2_GROUP_DESCRIPTOR*)(&(_fs->gd));
 	UINT32 i = 0;
 	UINT32 j = 0;
 	BYTE	mask = 0xFF;
@@ -282,16 +279,22 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
-		if (gdp[inode_which_block_group].free_blocks_count > 0)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		if (fs->gd.free_blocks_count > 0)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우 아이노드가 속한 블럭 그룹을 저장.
 			block_group_number = inode_which_block_group;
 		}
 		else //같은 그룹내에 데이터 블럭을 할당할 공간이 없는 경우.
 		{
-			for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
-				if ((gdp[i].free_blocks_count) > 0)
+			block_read(fs, 0, GROUP_DES, block);	//0번째 그룹의 블록 디스크립터 테이블 읽어서 block에 저장
+			gdp = block;							//block에 맨 처음 주소를 gdp에 할당
+			for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에 다음으로 이동. 빈 공간이 있으면 해당 gdp 가지고 나옴
+			{
+				if (gdp -> free_blocks_count > 0)
 					break;
+				gdp++;
+			}
+			
 			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 데이터 블럭이 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
 			block_group_number = i;
 		}
@@ -661,9 +664,11 @@ int get_data_block_at_inode(EXT2_FILESYSTEM* fs, INODE inode, UINT32 number)	//i
 	UINT32 available_block = 0;			//새로 할당할 데이터 블록 번호
 	UINT32 new_indirect_block = 0;		//새로 할당할 간접 블록 번호
 	UINT32 indirect_boundary = 12;		//간접 블록이 시작하는 경계
-	UINT32 double_indirect_boundary = indirect_boundary + (MAX_BLOCK_SIZE / 4);	//이중간접 블록이 시작하는 경계
-	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(MAX_BLOCK_SIZE / 4);	//삼중간접 블럭이 시작하는 경계
-	UINT32 max_block_num = triple_indirect_boundary + TSQRT(MAX_BLOCK_SIZE / 4);
+	UINT32 entry_num_per_block = MAX_BLOCK_SIZE / 4;
+	UINT32 double_indirect_boundary = indirect_boundary + entry_num_per_block;	//이중간접 블록이 시작하는 경계
+	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(entry_num_per_block);	//삼중간접 블럭이 시작하는 경계
+	UINT32 max_block_num = triple_indirect_boundary + TSQRT(entry_num_per_block);
+
 	UINT32 parent_block_num = 0;		//간접 블록 들어갈때 들어가기 전 블럭 번호 저장
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
 	BYTE block[MAX_BLOCK_SIZE];
@@ -723,12 +728,12 @@ int get_data_block_at_inode(EXT2_FILESYSTEM* fs, INODE inode, UINT32 number)	//i
 				}
 				return inode_data_empty;
 			case 1:	//삼중간접블럭의 이중간접블럭, 아니면 원래 이중간접블럭에 도달한 경우 offset == 
-				offset = (inode_block_offset - 256) / 256;
-				inode_block_offset = inode_block_offset % 256;
+				offset = (inode_block_offset - entry_num_per_block) / entry_num_per_block;
+				inode_block_offset = inode_block_offset % entry_num_per_block;
 				break;
 			case 2:
-				offset = (inode_block_offset - 256 - SQRT(256)) / SQRT(256);
-				inode_block_offset = inode_block_offset % SQRT(256);
+				offset = (inode_block_offset - entry_num_per_block - SQRT(entry_num_per_block)) / SQRT(entry_num_per_block);
+				inode_block_offset = inode_block_offset % SQRT(entry_num_per_block);
 				break;
 			}
 			parent_block_num = ((UINT32*)block)[offset];
@@ -740,8 +745,8 @@ int get_data_block_at_inode(EXT2_FILESYSTEM* fs, INODE inode, UINT32 number)	//i
 
 int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을 읽는 함수 인것 같다. root는 읽은 슈퍼블록을 담을 곳을 인자로 넘겨 받음
 {
-	INT result;					  //결과를 리턴을 위한 변수
-	BYTE sector[MAX_BLOCK_SIZE]; //섹터크기 만큼 바이트 설정. 연속적으로 고정된 공간 할당 위해 정적배열 사용 (1024바이트)
+	INT result;						//결과를 리턴을 위한 변수
+	BYTE sector[MAX_BLOCK_SIZE];	//섹터크기 만큼 바이트 설정. 연속적으로 고정된 공간 할당 위해 정적배열 사용 (1024바이트)
 
 	if (fs == NULL || fs->disk == NULL) //fs가 지정되지 않으면 에러
 	{
@@ -758,7 +763,8 @@ int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을
 	if (fs->sb.magic_signature != 0xEF53) //슈퍼블럭인지 판단하는 필드. 고유값 확인으로.
 		return EXT2_ERROR;
 
-	ZeroMemory(sector, sizeof(MAX_SECTOR_SIZE)); //메모리 초기화.
+	ZeroMemory(sector, sizeof(MAX_BLOCK_SIZE)); //메모리 초기화.
+  
 	if (read_root_block(fs, sector))			 //슈퍼블록이 루트 디렉터리를 제대로 가리키는지 체크하기 위한 부분이 아닐까 생각.
 		return EXT2_ERROR;
 
@@ -785,21 +791,24 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs) //비어있는 아이노드 �
 	UINT32 i = 0;
 	BYTE mask = 0xFF;
 
-	gdp = (EXT2_GROUP_DESCRIPTOR*)(&(_fs->gd));
-
-
 	//먼저 슈퍼블럭값을 통해 볼륨 전체에 사용가능한 아이노드 저장공간이 있는지 확인.
 	if (_fs->sb.free_inode_count) //볼륨 내에 할당 가능한 아이노드 공간이 있는 경우.
 	{
-		if (gdp[_fs->sb.block_group_number].free_inodes_count) //같은 그룹내에 아이노드를 할당할 공간이 있는 경우.
+		if (_fs->gd.free_inodes_count) //같은 그룹내에 아이노드를 할당할 공간이 있는 경우.
 		{
 			block_group_number = _fs->sb.block_group_number;
 		}
 		else //같은 그룹내에 아이노드를 할당할 공간이 없는 경우.
 		{
+			ZeroMemory(block, MAX_BLOCK_SIZE);
+			block_read(fs, 0, GROUP_DES, block);
+			gdp = block;
 			for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
-				if ((gdp[i].free_inodes_count) > 0)
+			{
+				if (gdp->free_inodes_count > 0)
 					break;
+				gdp++;
+			}
 			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 아이노드가 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
 			block_group_number = i;
 		}
@@ -1021,107 +1030,141 @@ int data_write(EXT2_FILESYSTEM* fs, SECTOR group, SECTOR sectorNum, BYTE* sector
 	return fs->disk->write_sector(fs->disk, real_index, sector); // 성공 여부 리턴 (disksim.c -> disksim_write)
 }
 
+int write_block(DISK_OPERATIONS* disk, UINT32 block_num, const void * block, QWORD sector_per_block)	//fs가 할당되지 않은 상태에서 디스크에 블럭 단위로 기록하는 함수 block_write랑 다름
+{
+	for (int i = 0; i < sector_per_block; i++)
+	{
+		if(disk->write_sector(disk, (block_num * sector_per_block) + i, &block[MAX_SECTOR_SIZE * i])) //내부 원리 이해잘 못했음
+		{
+			printf("Write failed\n");
+			return EXT2_ERROR;
+		}
+	}
+	return EXT2_SUCCESS;
+}
+
+int read_block(DISK_OPERATIONS* disk, UINT32 block_num, void * block, QWORD sector_per_block)
+{
+	for (int i = 0; i < sector_per_block; i++)
+	{
+		if(disk->read_sector(disk, (block_num * sector_per_block) + i, &block[MAX_SECTOR_SIZE * i]))
+		{
+			printf("Read failed\n");
+			return EXT2_ERROR;
+		}
+	}
+	return EXT2_SUCCESS;
+}
+
 int ext2_format(DISK_OPERATIONS* disk) //디스크를 ext2파일 시스템으로 초기화 하는 함수
 {
 	EXT2_SUPER_BLOCK sb;
 	EXT2_GROUP_DESCRIPTOR gd;
 	EXT2_GROUP_DESCRIPTOR gd_another_group;
-
-	QWORD sector_num_per_group = (disk->numberOfSectors - 1) / NUMBER_OF_GROUPS; //디스크로부터 디스크 섹터 개수에 대한 정보를 읽어온다. 미리 설정된 그룹 개수만큼 나누어 그룹당 섹터 개수를 계산한다.
+	QWORD sector_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;				//block 당 섹터가 몇개인지
+	QWORD numberOfBlocks = (disk->numberOfSectors) /sector_per_block;		//총 블럭의 개수
+	QWORD sector_num_per_group = (disk->numberOfSectors - sector_per_block) / NUMBER_OF_GROUPS; //디스크로부터 디스크 섹터 개수에 대한 정보를 읽어온다. 미리 설정된 그룹 개수만큼 나누어 그룹당 섹터 개수를 계산한다.
+	QWORD block_num_per_group = sector_num_per_group / sector_per_block;	//그룹당 블럭의 개수
+	QWORD bytesPerBlock = (disk->bytesPerSector) * sector_per_block;
 	int i, gi, j;
 	const int BOOT_SECTOR_BASE = 1; //부트 섹터를 제외한 파일시스템의 기본번지 설정번지에 위치하도록
-
+	const int BOOT_BLOCK_BASE = 1;	//disk는 섹터 단위로 계산. BOOT_BLOCK_BASE 는 섹터 베이스 * 블럭당 섹터 수
 	char sector[MAX_SECTOR_SIZE]; //슈퍼블록을 넣을 메모리 공간을 할당받는다. 1KB만큼 하랑 받음
+	char block[MAX_BLOCK_SIZE];
+	
+	//아래에서 데이터를 넣을 때 모두 블럭 단위로 넣는다. write_block 함수 사용
 
 	// super block
-	if (fill_super_block(&sb, disk->numberOfSectors, disk->bytesPerSector) != EXT2_SUCCESS) //메모리의 어떤 공간에 슈퍼블록 구조체에 관한 내용을 채워넣는다.
+	if (fill_super_block(&sb, numberOfBlocks, bytesPerBlock) != EXT2_SUCCESS) //메모리의 어떤 공간에 슈퍼블록 구조체에 관한 내용을 채워넣는다.
 		return EXT2_ERROR;																	//실패시 에러
 
-	ZeroMemory(sector, sizeof(sector));						//슈퍼블록이 들어갈 메모리 공간을 0으로 초기화 한다.
-	memcpy(sector, &sb, sizeof(sb));						//아까 슈퍼블록 구조체에 넣어놨던 데이터를 미리 정해둔 크기의 메모리에 올린다.
-	disk->write_sector(disk, BOOT_SECTOR_BASE + 0, sector); //disk의 동작을 통해 부트섹터를 제외한 디스크의 가장 처음 블록에 슈퍼블록을 저장한다.
+	ZeroMemory(block, sizeof(block));									//슈퍼블록이 들어갈 메모리 공간을 0으로 초기화 한다.
+	memcpy(block, &sb, sizeof(sb));										//아까 슈퍼블록 구조체에 넣어놨던 데이터를 미리 정해둔 크기의 메모리에 올린다.
+	write_block(disk, BOOT_BLOCK_BASE + 0, block, sector_per_block);	//disk의 동작을 통해 부트섹터를 제외한 디스크의 가장 처음 블록에 슈퍼블록을 저장한다.
 
 	//Group Descriptor Table
-	if (fill_descriptor_block(&gd, &sb, disk->numberOfSectors, disk->bytesPerSector) != EXT2_SUCCESS) //슈퍼블록을 디스크에 저장하는 과정과 마찬가지로 디스크에 블록 디스크립터를 저장한다.
+	if (fill_descriptor_block(&gd, &sb, numberOfBlocks, bytesPerBlock) != EXT2_SUCCESS) //슈퍼블록을 디스크에 저장하는 과정과 마찬가지로 디스크에 블록 디스크립터를 저장한다.
 		return EXT2_ERROR;
 
 	gd_another_group = gd;
 	gd_another_group.free_inodes_count = NUMBER_OF_INODES / NUMBER_OF_GROUPS;
 	gd_another_group.free_blocks_count = sb.free_block_count / NUMBER_OF_GROUPS;
 
-	ZeroMemory(sector, sizeof(sector));
+	ZeroMemory(block, sizeof(block));
 	for (j = 0; j < NUMBER_OF_GROUPS; j++)
 	{
 		if (j == 0)
-			memcpy(sector + j * sizeof(gd), &gd, sizeof(gd));
+			memcpy(block + j * sizeof(gd), &gd, sizeof(gd));
 		else
-			memcpy(sector + j * sizeof(gd_another_group), &gd_another_group, sizeof(gd_another_group));
+			memcpy(block + j * sizeof(gd_another_group), &gd_another_group, sizeof(gd_another_group));
 	}
 
-	disk->write_sector(disk, BOOT_SECTOR_BASE + 1, sector); //내부 원리 이해잘 못했음
+	write_block(disk, BOOT_BLOCK_BASE + 1, block, sector_per_block);
 
 	// block bitmap
-	ZeroMemory(sector, sizeof(sector));
+	ZeroMemory(block, sizeof(block));
 
-	sector[0] = 0xff;
-	sector[1] = 0xff;
-	sector[2] = 0x01;
-	disk->write_sector(disk, BOOT_SECTOR_BASE + 2, sector);
+	block[0] = 0xff;
+	block[1] = 0xff;
+	block[2] = 0x01;
+	write_block(disk, BOOT_BLOCK_BASE + 2, block, sector_per_block);
 
 	// inode bitmap
-	ZeroMemory(sector, sizeof(sector));
+	ZeroMemory(block, sizeof(block));
 
-	sector[0] = 0xff;
-	sector[1] = 0x07;
-	disk->write_sector(disk, BOOT_SECTOR_BASE + 3, sector);
+	block[0] = 0xff;
+	block[1] = 0x07;
+	write_block(disk, BOOT_BLOCK_BASE + 3, block, sector_per_block);
 
 	// inode table
-	ZeroMemory(sector, sizeof(sector));
+	ZeroMemory(block, sizeof(block));
 
 	for (i = 4; i < sb.first_data_block_each_group; i++)
-		disk->write_sector(disk, BOOT_SECTOR_BASE + i, sector);
+		write_block(disk, BOOT_BLOCK_BASE + i, block, sector_per_block);
 
 	// another group
 	for (gi = 1; gi < NUMBER_OF_GROUPS; gi++)
 	{
 		sb.block_group_number = gi;
 
-		ZeroMemory(sector, sizeof(sector));
-		memcpy(sector, &sb, sizeof(sb));
+		ZeroMemory(block, sizeof(block));
+		memcpy(block, &sb, sizeof(sb));
 
-		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE, sector);
+		write_block(disk, block_num_per_group * gi + BOOT_BLOCK_BASE, block, sector_per_block);
 
-		ZeroMemory(sector, sizeof(sector));
+		ZeroMemory(block, sizeof(block));
 		for (j = 0; j < NUMBER_OF_GROUPS; j++)
 		{
-			memcpy(sector + j * sizeof(gd), &gd, sizeof(gd));
+			if (j == 0)
+				memcpy(block + j * sizeof(gd), &gd, sizeof(gd));
+			else
+				memcpy(block + j * sizeof(gd_another_group), &gd_another_group, sizeof(gd_another_group));
 		}
-		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + 1, sector);
+		write_block(disk, block_num_per_group * gi + BOOT_BLOCK_BASE + 1, block, sector_per_block);
 
 		// block bitmap
-		ZeroMemory(sector, sizeof(sector));
-		sector[0] = 0xff;
-		sector[1] = 0xff;
-		sector[2] = 0x01;
-		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + 2, sector);
+		ZeroMemory(block, sizeof(block));
+		block[0] = 0xff;
+		block[1] = 0xff;
+		block[2] = 0x01;
+		write_block(disk, block_num_per_group * gi + BOOT_BLOCK_BASE + 2, block, sector_per_block);
 
 		//inode bitmap
-		ZeroMemory(sector, sizeof(sector));
-
-		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + 3, sector);
+		ZeroMemory(block, sizeof(block));
+		write_block(disk, block_num_per_group * gi + BOOT_BLOCK_BASE + 3, block, sector_per_block);
 
 		// inode table
-		ZeroMemory(sector, sizeof(sector));
+		ZeroMemory(block, sizeof(block));
 		for (i = 4; i < sb.first_data_block_each_group; i++)
-			disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + i, sector);
+			write_block(disk, block_num_per_group * gi + BOOT_BLOCK_BASE + i, block, sector_per_block);
 	}
 
 	PRINTF("max inode count                : %u\n", sb.max_inode_count);
 	PRINTF("total block count              : %u\n", sb.block_count);
 	PRINTF("byte size of inode structure   : %u\n", sb.inode_structure_size);
 	PRINTF("block byte size                : %u\n", MAX_BLOCK_SIZE);
-	PRINTF("total sectors count            : %u\n", NUMBER_OF_SECTORS);
-	PRINTF("sector byte size               : %u\n", MAX_SECTOR_SIZE);
+	PRINTF("total sectors count            : %u\n", disk->numberOfSectors);
+	PRINTF("sector byte size               : %u\n", disk->bytesPerSector);
 	PRINTF("\n");
 
 	create_root(disk, &sb); //루트디렉터리를 만들어 슈퍼블럭과 연결시킨다.
@@ -1130,13 +1173,9 @@ int ext2_format(DISK_OPERATIONS* disk) //디스크를 ext2파일 시스템으로
 }
 int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry) //파일시스템에서 파일을 새로 생성할때 호출되는 함수.
 {
-	EXT2_GROUP_DESCRIPTOR *gdp = &(parent->fs->gd);
-	UINT32 groupNum = GET_INODE_GROUP(parent->entry.inode);
-	if (gdp[groupNum].free_inodes_count == 0)
-		return EXT2_ERROR; //생성가능한 아이노드 공간이 없으면 에러
-
-	// if ((parent->fs->gd.free_inodes_count) == 0)
-	// 	return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
+	if ((parent->fs->gd.free_inodes_count) == 0)
+		return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
+  
 	UINT32 inode;
 	BYTE name[MAX_NAME_LENGTH] = {
 		0,
@@ -1185,9 +1224,10 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 	UINT32 available_block = 0;			//새로 할당할 데이터 블록 번호
 	UINT32 new_indirect_block = 0;		//새로 할당할 간접 블록 번호
 	UINT32 indirect_boundary = 12;		//간접 블록이 시작하는 경계
-	UINT32 double_indirect_boundary = indirect_boundary + (MAX_BLOCK_SIZE / 4);	//이중간접 블록이 시작하는 경계
-	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(MAX_BLOCK_SIZE / 4);	//삼중간접 블럭이 시작하는 경계
-	UINT32 max_block_num = triple_indirect_boundary + TSQRT(MAX_BLOCK_SIZE / 4);
+	UINT32 entry_num_per_block = MAX_BLOCK_SIZE / 4;	//간접 블럭에 블럭 번호가 몇 개 들어갈 수 있는지
+	UINT32 double_indirect_boundary = indirect_boundary + (entry_num_per_block);	//이중간접 블록이 시작하는 경계
+	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(entry_num_per_block);	//삼중간접 블럭이 시작하는 경계
+	UINT32 max_block_num = triple_indirect_boundary + TSQRT(entry_num_per_block);
 	UINT32 parent_block_num = 0;		//간접 블록 들어갈때 들어가기 전 블럭 번호 저장
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
 	UINT32 block[MAX_BLOCK_SIZE/4];		//블럭 저장 UINT32 = 4 * BYTE 할당시 블럭크기에서 4를 나누어주어야 BYTE[MAX_BLOCK_SIZE]와 같은의미
@@ -1241,8 +1281,10 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 			new_indirect_block = get_available_data_block(fs, inode_num);
 			if (new_indirect_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
 				return EXT2_ERROR;
+
 			parent_block_num = new_indirect_block;
 			inode.block[inode_array_offset] = new_indirect_block;					//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
+
 			process_meta_data_for_block_used(fs, inode_num, new_indirect_block);	//블럭 사용한다고 기록
 			set_inode_onto_inode_table(fs, inode_num, &inode);
 		}
@@ -1267,12 +1309,12 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 
 				return EXT2_SUCCESS;	//성공여부 리턴
 			case 1:	//이중 간접 블록
-				offset = (inode_block_offset - 256) / 256;
-				inode_block_offset = inode_block_offset % 256;	//간접 블럭 들어가서 위치
+				offset = (inode_block_offset - entry_num_per_block) / entry_num_per_block;
+				inode_block_offset = inode_block_offset % entry_num_per_block;	//간접 블럭 들어가서 위치
 				break;
 			case 2:	//삼중 간접 블록
-				offset = (inode_block_offset - 256 - SQRT(256)) / SQRT(256);
-				inode_block_offset = inode_block_offset % SQRT(256);
+				offset = (inode_block_offset - entry_num_per_block - SQRT(entry_num_per_block)) / SQRT(entry_num_per_block);
+				inode_block_offset = inode_block_offset % SQRT(entry_num_per_block);
 				break;
 			}
 
@@ -1295,17 +1337,18 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 	}
 }
 
-int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfSectors, UINT32 bytesPerSector) //슈퍼블록 포인터와 섹터 개수 섹터당 바이트 수를 받으면 슈퍼블록 구조체를 채워넣는다.
+//슈퍼블록 포인터와 섹터 개수 섹터당 바이트 수를 받으면 슈퍼블록 구조체를 채워넣는다.
+int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfBlocks, UINT32 bytesPerBlock) 
 {
 	ZeroMemory(sb, sizeof(EXT2_SUPER_BLOCK));
 
 	sb->max_inode_count = NUMBER_OF_INODES;
-	sb->block_count = numberOfSectors;
+	sb->block_count = numberOfBlocks;
 	sb->reserved_block_count = 0;
-	sb->free_block_count = numberOfSectors - (17 * NUMBER_OF_GROUPS) - 1;
+	sb->free_block_count = numberOfBlocks - (17 * NUMBER_OF_GROUPS) - 1;
 	sb->free_inode_count = NUMBER_OF_INODES - 10;
 	sb->first_data_block = 1;
-	switch (MAX_BLOCK_SIZE)
+	switch (bytesPerBlock)
 	{
 	case 1024:
 		sb->log_block_size = 0;
@@ -1321,7 +1364,7 @@ int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfSectors, UINT32 bytesP
 		break;
 	}
 	sb->log_fragmentation_size = 0;
-	sb->block_per_group = (numberOfSectors - 1) / NUMBER_OF_GROUPS;
+	sb->block_per_group = (numberOfBlocks - 1) / NUMBER_OF_GROUPS;
 	sb->fragmentation_per_group = 0;
 	sb->inode_per_group = NUMBER_OF_INODES / NUMBER_OF_GROUPS;
 	sb->magic_signature = 0xEF53;
@@ -1333,7 +1376,7 @@ int fill_super_block(EXT2_SUPER_BLOCK *sb, SECTOR numberOfSectors, UINT32 bytesP
 
 	return EXT2_SUCCESS;
 }
-int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR* gd, EXT2_SUPER_BLOCK* sb, SECTOR numberOfSectors, UINT32 bytesPerSector) //그룹 디스크립터 포인터와 슈퍼블록 포인터, 섹터 개수, 섹터당 바이트 수를 받으면 그룹디스크립터 구조체를 채워넣는다.
+int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR* gd, EXT2_SUPER_BLOCK* sb, SECTOR numberOfBlocks, UINT32 bytesPerBlock) //그룹 디스크립터 포인터와 슈퍼블록 포인터, 섹터 개수, 섹터당 바이트 수를 받으면 그룹디스크립터 구조체를 채워넣는다.
 {
 	ZeroMemory(gd, sizeof(EXT2_GROUP_DESCRIPTOR));
 
@@ -1348,19 +1391,22 @@ int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR* gd, EXT2_SUPER_BLOCK* sb, SECTO
 }
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK* sb) //루트 디렉터리를 생성하는 함수
 {
-	BYTE sector[MAX_SECTOR_SIZE]; //
-	SECTOR rootSector = 0;		  //
-	EXT2_DIR_ENTRY* entry;		  //
-	EXT2_GROUP_DESCRIPTOR* gd;	  //
-	EXT2_SUPER_BLOCK* sb_read;	  //
-	QWORD sector_num_per_group = (disk->numberOfSectors - 1) / NUMBER_OF_GROUPS;
+	BYTE sector[MAX_SECTOR_SIZE];	//sector 임시 저장공간
+	BYTE block[MAX_BLOCK_SIZE];		//block 임시 저장공간
+	SECTOR rootSector = 0;			//루트섹터 위치 표시 블럭과 섹터에서 모두 사용 가능
+	EXT2_DIR_ENTRY* entry;			//
+	EXT2_GROUP_DESCRIPTOR* gd;		//
+	EXT2_SUPER_BLOCK* sb_read;		//
+	UINT32 sector_per_block = MAX_BLOCK_SIZE / MAX_SECTOR_SIZE;						//블럭당 섹터 수
+	QWORD sector_num_per_group = (disk->numberOfSectors - 1) / NUMBER_OF_GROUPS;	//그룹당 섹터 수
+	QWORD block_num_per_group = sector_num_per_group / sector_per_block;			//그룹당 블럭 수
 	INODE* ip;
 	const int BOOT_SECTOR_BASE = 1;
 	int gi;
 
 	// entry 초기화
-	ZeroMemory(sector, MAX_SECTOR_SIZE);
-	entry = (EXT2_DIR_ENTRY*)sector;
+	ZeroMemory(block, MAX_BLOCK_SIZE);
+	entry = (EXT2_DIR_ENTRY*)block;
 
 	memcpy(entry->name, VOLUME_LABLE, 11);
 	entry->name_len = strlen(VOLUME_LABLE);
@@ -1368,43 +1414,42 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK* sb) //루트 디렉터�
 	entry++;
 	entry->name[0] = DIR_ENTRY_NO_MORE;
 	rootSector = 1 + sb->first_data_block_each_group;
-	disk->write_sector(disk, rootSector, sector);
+	write_block(disk, rootSector, block, sector_per_block);
 
 	// super block
-	sb_read = (EXT2_SUPER_BLOCK*)sector;
+	sb_read = (EXT2_SUPER_BLOCK*)block;
 	for (gi = 0; gi < NUMBER_OF_GROUPS; gi++)
 	{
-		disk->read_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE, sector);
+		read_block(disk, block_num_per_group * gi + BOOT_SECTOR_BASE, block, sector_per_block);
 		sb_read->free_block_count--;
-
-		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE, sector);
+		write_block(disk, block_num_per_group * gi + BOOT_SECTOR_BASE, block, sector_per_block);
 	}
 	sb->free_block_count--;
 
 	// group descriptor
-	gd = (EXT2_GROUP_DESCRIPTOR*)sector;
-	disk->read_sector(disk, BOOT_SECTOR_BASE + 1, sector);
+	gd = (EXT2_GROUP_DESCRIPTOR*)block;
+	read_block(disk, BOOT_SECTOR_BASE + 1, block, sector_per_block);
 
 	gd->free_blocks_count--;
 	gd->directories_count = 1;
 
 	for (gi = 0; gi < NUMBER_OF_GROUPS; gi++)
-		disk->write_sector(disk, sector_num_per_group * gi + BOOT_SECTOR_BASE + 1, sector);
+		write_block(disk, block_num_per_group * gi + BOOT_SECTOR_BASE + 1, block, sector_per_block);
 
 	// data block bitmap
-	disk->read_sector(disk, BOOT_SECTOR_BASE + 2, sector);
-	sector[2] |= 0x02;
-	disk->write_sector(disk, BOOT_SECTOR_BASE + 2, sector);
+	read_block(disk, BOOT_SECTOR_BASE + 2, block, sector_per_block);
+	block[2] |= 0x02;
+	write_block(disk, BOOT_SECTOR_BASE + 2, block, sector_per_block);
 
 	// ip 초기화
-	ZeroMemory(sector, MAX_SECTOR_SIZE);
-	ip = (INODE*)sector;
+	ZeroMemory(block, MAX_BLOCK_SIZE);
+	ip = (INODE*)block;
 	ip++;
 	ip->mode = 0x1FF | 0x4000;
 	ip->size = 0;
 	ip->blocks = 1;
 	ip->block[0] = sb->first_data_block_each_group;
-	disk->write_sector(disk, BOOT_SECTOR_BASE + 4, sector);
+	write_block(disk, BOOT_SECTOR_BASE + 4, block, sector_per_block);
 
 	return EXT2_SUCCESS;
 }
@@ -1609,7 +1654,6 @@ int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char*
 	while (currentOffset < readEnd) // 현재 offset이 읽고자 하는 위치보다 앞쪽인동안
 	{
 		DWORD	copyLength; // 복사할 데이터의 Byte단위 길이
-
 		blockNumber = currentOffset / MAX_BLOCK_SIZE; // 현재 offset이 몇번째 블록인지 계산
 		
 		if (blockSeq != blockNumber) // 다음 블록으로 넘어갔다면
@@ -1700,8 +1744,12 @@ int ext2_rmdir(EXT2_NODE* dir)
 				memcpy(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, DIR_ENTRY_FREE, sizeof(DIR_ENTRY_FREE));	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);					//디렉터리 엔트리 값을 바꾸고 저장.
 
-				//그룹디스크립터 수정: directories_count 변수 수정.
-				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + block_group_number)->directories_count--;	//그룹디스크립터의 디렉터리 수 감소
+				//그룹디스크립터 수정: directories_count 변수 수정.				
+				_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
+				ZeroMemory(block, MAX_BLOCK_SIZE);
+				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
+				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
+				block_write(_dir->fs, 0, GROUP_DES, block);
 			}
 			else //하드링크가 하나 연결되어 있는경우 폴더 완전 삭제를 의미
 			{
@@ -1755,11 +1803,18 @@ int ext2_rmdir(EXT2_NODE* dir)
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);	//디렉터리 엔트리 값을 바꾸고 저장.
 
 				//그룹디스크립터 수정: directories_count 감소, free_inode_count 증가
-				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + dir->location.group)->directories_count--;	//그룹디스크립터의 사용중인 디렉터리 수 감소
-				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + dir->location.group)->free_inodes_count++;	//그룹디스크립터의 할당가능한 아이노드 수 증가
+				_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
+				ZeroMemory(block, MAX_BLOCK_SIZE);
+				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
+				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
+				block_write(_dir->fs,0, GROUP_DES, block);
 
 				//슈퍼블럭 수정: free_inode_count 증가
 				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.
+				ZeroMemory(block, MAX_BLOCK_SIZE);
+				block_read(_dir->fs, 0, SUPER_BLOCK, block);	//처음 그룹의 슈퍼블럭만 수정
+				((EXT2_SUPER_BLOCK*)block)->free_inode_count++;
+				block_write(_dir->fs, 0, SUPER_BLOCK, block);
 
 				return EXT2_SUCCESS;
 			}

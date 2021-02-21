@@ -13,13 +13,13 @@
 #include <string.h>
 
 #define EXT2_N_BLOCKS         	15				//직,간접 블록 개수
-#define	NUMBER_OF_SECTORS		( 4096 + 1 )	//총 섹터 수
-#define	NUMBER_OF_GROUPS		2				//블록 그룹 수
+#define	NUMBER_OF_SECTORS		( 2097152 + 4 )	//총 섹터 수
+#define	NUMBER_OF_GROUPS		8				//블록 그룹 수
 #define	NUMBER_OF_INODES		200				//볼륨 전체의 아이노드 수
 #define	VOLUME_LABLE			"EXT2 BY NC"	//볼륨 이름
 
 #define MAX_SECTOR_SIZE			1024			//최대 섹터 크기 (Byte)
-#define MAX_BLOCK_SIZE			1024			//최대 블록 크기 (Byte)
+#define MAX_BLOCK_SIZE			4096			//최대 블록 크기 (Byte)
 #define MAX_NAME_LENGTH			256				//최대 이름 제한
 #define MAX_ENTRY_NAME_LENGTH	11				//최대 엔트리 이름 제한
 
