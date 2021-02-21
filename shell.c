@@ -9,9 +9,10 @@
 #include "disksim.h"
 
 #define		SECTOR					DWORD
+//#define		BLOCK_SIZE				4096
 #define		BLOCK_SIZE				1024
 #define		SECTOR_SIZE				1024
-#define		NUMBER_OF_SECTORS		( 4096 + 1 )
+#define		NUMBER_OF_SECTORS		(2097152 + 4)
 
 #define COND_MOUNT				0x01
 #define COND_UMOUNT				0x02
@@ -542,7 +543,7 @@ int shell_cmd_mkdirst(int argc, char* argv[]) // 여러 개의 디렉터리 생�
 	sscanf(argv[1], "%d", &count); // argv[1]로부터 정수 형식의 데이터를 읽어 count에 저장
 	for (i = 0; i < count; i++)
 	{
-		printf(buf, "%d", i); // i를 정수 형식으로 buf에 저장
+		sprintf(buf, "%d", i); // i를 정수 형식으로 buf에 저장
 		result = g_fsOprs.mkdir(&g_disk, &g_fsOprs, &g_currentDir, buf, &entry); // i라는 이름의 디렉터리 생성 (ext2_shell.c -> fs_mkdir)
 
 		if (result) // 생성 실패 시 (만약 4라는 이름의 디렉터리가 존재하고 8개의 디렉터리를 만들고자 했다면 3까지만 생성됨)
