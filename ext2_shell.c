@@ -152,6 +152,7 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 {
 	EXT2_FILESYSTEM* fs;
 	EXT2_NODE ext2_entry;
+	UINT32 bytesPerBlock;
 	int result;
 
 	*fsOprs = g_fsOprs; // g_fsOprs구조체에 EXT2오퍼레이션함수 등록
@@ -168,7 +169,19 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 	{
 		printf("number of groups         : %d\n", NUMBER_OF_GROUPS);
 		printf("blocks per group         : %d\n", fs->sb.block_per_group);
-		printf("bytes per block          : %d\n", disk->bytesPerSector);
+		switch (fs->sb.log_block_size)
+		{
+		case 0:
+			bytesPerBlock = 1024;
+			break;
+		case 1:
+			bytesPerBlock = 2048;
+			break;
+		case 2:
+			bytesPerBlock = 4096;
+			break;
+		}
+		printf("bytes per block          : %d\n", bytesPerBlock);
 		printf("free block count	 : %d\n", fs->sb.free_block_count);
 		printf("free inode count	 : %d\n", fs->sb.free_inode_count);
 		printf("first non reserved inode : %d\n", fs->sb.first_non_reserved_inode);
