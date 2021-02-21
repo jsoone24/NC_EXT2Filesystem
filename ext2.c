@@ -1752,7 +1752,6 @@ int ext2_remove(EXT2_NODE* file)
 	result = get_inode(file->fs, file->entry.inode, (INODE*)inodeBuffer); // inode number에 대한 메타데이터를 inodeBuffer에 저장
 	if (result == EXT2_ERROR)
 		return EXT2_ERROR;
-	printf("%d\n", file->entry.inode);
 
 	if ((((INODE*)inodeBuffer)->mode & fileTypeMask) && FILE_TYPE_DIR)  // 해당 엔트리가 디렉터리이면 에러
 		return EXT2_ERROR;
