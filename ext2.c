@@ -607,7 +607,7 @@ int block_read(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, unsi
 	{
 		if (data_read(fs, group, ((block * sectorCount) + i), &(blockBuffer[MAX_SECTOR_SIZE * i])))
 		{
-			printf("Read failed\n");
+			// printf("Read failed\n");
 			return EXT2_ERROR;
 		}
 	}
@@ -1572,7 +1572,7 @@ int ext2_remove(EXT2_NODE* file)
 		return EXT2_ERROR;
 	
 	// 데이터블록 비트맵 수정
-	process_meta_data_for_block_used(file->fs, file->entry.inode, 1);
+	process_meta_data_for_block_free(file->fs, file->entry.inode);
 
 	// 디스크의 sb.free_inode_count를 1 증가
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
@@ -1666,7 +1666,7 @@ int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char*
 
 		blockOffset = currentOffset % MAX_BLOCK_SIZE;
 
-		if (block_read(file->fs, GET_INODE_GROUP(file->entry.inode), currentBlock, sector)) // 계산한 위치의 데이터를 섹터단위로 읽음
+		if (block_read(file->fs, 0, currentBlock, sector)) // 계산한 위치의 데이터를 섹터단위로 읽음
 			break;
 
 		// 현재 읽어야 할 데이터가 마지막 데이터인지 판단. 마지막 데이터가 아니면 전자, 마지막 데이터이면 후자
