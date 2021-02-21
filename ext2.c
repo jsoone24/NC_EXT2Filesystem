@@ -1570,7 +1570,7 @@ int ext2_remove(EXT2_NODE* file)
 		return EXT2_ERROR;
 	
 	// 데이터블록 비트맵 수정
-	process_meta_data_for_block_used(file->fs, file->entry.inode, 1);
+	process_meta_data_for_block_free(file->fs, file->entry.inode);
 
 	// 디스크의 sb.free_inode_count를 1 증가
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
