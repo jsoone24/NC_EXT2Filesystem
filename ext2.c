@@ -149,11 +149,11 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 
 	// Update inode bitmap
 	ZeroMemory(sector, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	block_read(retEntry->fs, groupNum, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (inode_num - 1) % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
 	sector[(inode_num - 1) / 8] |= mask; // 비트맵 수정
-	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
+	block_write(retEntry->fs, groupNum, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
 }
@@ -1478,15 +1478,15 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 	}
 	
 	fs->sb.free_block_count--; // fs의 sb.free_block_count를 1 감소
-	fs->gd.free_inodes_count--; // fs의 gd.free_blocks_count를 1 감소
+	fs->gd.free_blocks_count--; // fs의 gd.free_blocks_count를 1 감소
 
 	// Update data block bitmap
 	ZeroMemory(sector, sizeof(sector));
-	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
+	block_read(fs, groupNum, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
 	offset = block_num % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
 	sector[block_num / 8] |= mask; // 비트맵 수정
-	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
+	block_write(fs, groupNum, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
 
@@ -1554,7 +1554,7 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 int ext2_remove(EXT2_NODE* file)
 {
 	BYTE	inodeBuffer[sizeof(INODE)];
-	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 1024Byte
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];
 	BYTE	sector[MAX_BLOCK_SIZE];
 	int		result, i;
 	UINT32	num, offset;				// num: 데이터블록 넘버, offset: 섹터 내에서 데이터블록 오프셋
@@ -1583,7 +1583,7 @@ int ext2_remove(EXT2_NODE* file)
 
 	file->fs->sb.free_inode_count++; // fs의 sb.free_inode_count를 1 증가
 
-	// 디스크의 gd.free_inodes_count 1 감소
+	// 디스크의 gd.free_inodes_count 1 증가
 	ZeroMemory(sector, sizeof(sector));
 	block_read(file->fs, groupNum, GROUP_DES, sector);
 	((EXT2_GROUP_DESCRIPTOR*)sector)[groupNum].free_inodes_count++;
@@ -1593,11 +1593,11 @@ int ext2_remove(EXT2_NODE* file)
 
 	// 아이노드 비트맵 수정
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-	block_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	block_read(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (file->entry.inode - 1) % 8; // 섹터 내의 offset 계산
 	mask = ~(1 << offset); // 오프셋을 1로 수정하기 위한 마스크
 	blockBuffer[(file->entry.inode - 1) / 8] &= mask; // 비트맵 수정
-	block_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
+	block_write(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	// 해제된 아이노드 데이터블럭 0으로 초기화
 	for (i = 0; i < EXT2_N_BLOCKS; i++)
