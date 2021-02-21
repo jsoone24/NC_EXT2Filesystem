@@ -475,9 +475,9 @@ int shell_cmd_df(int argc, char* argv[]) // 디스크 사용량 출력
 
 	g_fsOprs.stat(&g_disk, &g_fsOprs, &total, &used); // 총 섹터 수와 사용중인 섹터 수 계산 (구현X ext2_shell.c -> fs_stat)
 
-	printf("free sectors : %u(%.2lf%%)\tused sectors : %u(%.2lf%%)\ttotal : %u\n",
-		total - used, get_percentage(total - used, g_disk.numberOfSectors),
-		used, get_percentage(used, g_disk.numberOfSectors),
+	printf("free blocks : %u(%.2lf%%)\tused blocks : %u(%.2lf%%)\ttotal : %u\n",
+		total - used, get_percentage(total - used, total),
+		used, get_percentage(used, total),
 		total); // 디스크 사용량 출력
 
 	return 0;

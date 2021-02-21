@@ -49,11 +49,6 @@
 #endif
 #pragma pack(1)
 
-
-#define cal_inode_per_block(x) (x == 0 ? 8 : (x==1 ? 16 : 32))
-
-
-
 typedef struct
 {
 	UINT32 max_inode_count;				//파일 시스템에서 샤용가능한 최대 아이노드 수 = 200
@@ -145,9 +140,9 @@ typedef struct
 
 typedef struct
 {
-	EXT2_FILESYSTEM * fs;				//위의 구조체
+	EXT2_FILESYSTEM * fs;				//디렉터리의 sb와 gd정보를 가지고 있음
 	EXT2_DIR_ENTRY entry;				//디렉터리 엔트리의 최상단 아니면 최하단을 가리키는것으로 예상
-	EXT2_DIR_ENTRY_LOCATION location;	//위의 구조체
+	EXT2_DIR_ENTRY_LOCATION location;	//entry의 위치를 나타냄
 } EXT2_NODE;							//블록 그룹 하나를 관리하기 위한 객체인 것 같다. 이게 블록 그룹 개수 만큼 있을 것 같다. 배열이든 연결리스트로든
 
 #define SUPER_BLOCK		0					//슈퍼블럭의 블럭 위치. 항상 0번째임
