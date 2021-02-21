@@ -1742,12 +1742,14 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 // Remove file (eunseo)
 int ext2_remove(EXT2_NODE* file)
 {
-	BYTE inodeBuffer[sizeof(INODE)];
-	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 1024Byte
+	BYTE	inodeBuffer[sizeof(INODE)];
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];
+	BYTE	sector[MAX_BLOCK_SIZE];
 	int		result, i;
 	UINT32	num, offset;				// num: 데이터블록 넘버, offset: 섹터 내에서 데이터블록 오프셋
 	UINT16	mask;
 	unsigned short fileTypeMask = 0xF000;
+	UINT32	groupNum = GET_INODE_GROUP(file->entry.inode);
 
 	result = get_inode(file->fs, file->entry.inode, (INODE*)inodeBuffer); // inode number에 대한 메타데이터를 inodeBuffer에 저장
 	if (result == EXT2_ERROR)
@@ -1759,6 +1761,96 @@ int ext2_remove(EXT2_NODE* file)
 	// 데이터블록 비트맵 수정
 	process_meta_data_for_block_free(file->fs, file->entry.inode);
 
+	// 디스크의 sb.free_inode_count를 1 증가
+	for (i = 0; i < NUMBER_OF_GROUPS; i++)
+	{
+		ZeroMemory(sector, sizeof(sector));
+		block_read(file->fs, i, SUPER_BLOCK, sector);
+		((EXT2_SUPER_BLOCK*)sector)->free_inode_count++;
+		block_write(file->fs, i, SUPER_BLOCK, sector);
+	}
+
+	file->fs->sb.free_inode_count++; // fs의 sb.free_inode_count를 1 증가
+
+	// 디스크의 gd.free_inodes_count 1 증가
+	ZeroMemory(sector, sizeof(sector));
+	block_read(file->fs, groupNum, GROUP_DES, sector);
+	((EXT2_GROUP_DESCRIPTOR*)sector)[groupNum].free_inodes_count++;
+	block_write(file->fs, groupNum, GROUP_DES, sector);
+
+	file->fs->gd.free_inodes_count++; // fs의 gd.free_inodes_count를 1 증가
+
+	// 아이노드 비트맵 수정
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
+	block_read(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	offset = (file->entry.inode - 1) % 8; // 섹터 내의 offset 계산
+	mask = ~(1 << offset); // 오프셋을 1로 수정하기 위한 마스크
+	blockBuffer[(file->entry.inode - 1) / 8] &= mask; // 비트맵 수정
+	block_write(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
+
+	// 해제된 아이노드 데이터블럭 0으로 초기화
+	for (i = 0; i < EXT2_N_BLOCKS; i++)
+	{
+		((INODE*)inodeBuffer)->block[i] = 0;
+	}
+
+	// 삭제된 엔트리라고 저장
+	file->entry.name[0] = DIR_ENTRY_FREE;
+	set_entry(file->fs, &file->location, &file->entry);
+
+	/*
+	1. 아이노드에서 데이터 블록들을 확인해서 연결된 데이터 블록들에 대한 블록 비트맵에 들어가서 해당 블록을 할당가능 상태로 표시해 놓는다.
+	2. 왠만하면 아이노드가 있는 같은 블록 그룹에 파일이 저장되지만, 만약 다른 블록 그룹에 있을 경우 해당 블록 그룹의 블록 비트맵에서 할당 가능 표시를 해놓는다.
+	3. 아이노드에 표시되어 있는 데이터 블록을 모두 할당 해제 했다면, 아이노드를 나온다.
+	4. 삭제할 파일의 아이노드 넘버를 알고 있으면, 아이노드가 있는 블록그룹의 아이노드 테이블에서 아이노드를 삭제하고, 아이노드 비트맵에서 사용가능이라고 표시해놓는다.
+	5. 파일과 연결된 부모 디렉터리로 가서, 파일에 대한 디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 설정하고, 다른 연결을 해제한다.
+	+) 동적할당한 것이 없기 때문에 해제하지는 않음
+	*/
+	return EXT2_SUCCESS;
+}
+
+// Remove file (eunseo)
+int ext2_remove(EXT2_NODE* file)
+{
+	BYTE inodeBuffer[sizeof(INODE)];
+	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 1024Byte
+	BYTE	sector[MAX_BLOCK_SIZE];
+	int		result, i;
+	UINT32	num, offset;				// num: 데이터블록 넘버, offset: 섹터 내에서 데이터블록 오프셋
+	UINT16	mask;
+	unsigned short fileTypeMask = 0xF000;
+	UINT32	groupNum = GET_INODE_GROUP(file->entry.inode);
+
+	result = get_inode(file->fs, file->entry.inode, (INODE*)inodeBuffer); // inode number에 대한 메타데이터를 inodeBuffer에 저장
+	if (result == EXT2_ERROR)
+		return EXT2_ERROR;
+
+	if ((((INODE*)inodeBuffer)->mode & fileTypeMask) && FILE_TYPE_DIR)  // 해당 엔트리가 디렉터리이면 에러
+		return EXT2_ERROR;
+	
+	// 데이터블록 비트맵 수정
+	process_meta_data_for_block_free(file->fs, file->entry.inode);
+
+	// 디스크의 sb.free_inode_count를 1 증가
+	for (i = 0; i < NUMBER_OF_GROUPS; i++)
+	{
+		ZeroMemory(sector, sizeof(sector));
+		block_read(file->fs, i, SUPER_BLOCK, sector);
+		((EXT2_SUPER_BLOCK*)sector)->free_inode_count++;
+		block_write(file->fs, i, SUPER_BLOCK, sector);
+	}
+
+	file->fs->sb.free_inode_count++; // fs의 sb.free_inode_count를 1 증가
+
+	// 디스크의 gd.free_inodes_count 1 증가
+	ZeroMemory(sector, sizeof(sector));
+	block_read(file->fs, groupNum, GROUP_DES, sector);
+	((EXT2_GROUP_DESCRIPTOR*)sector)[groupNum].free_inodes_count++;
+	block_write(file->fs, groupNum, GROUP_DES, sector);
+
+	file->fs->gd.free_inodes_count++; // fs의 gd.free_inodes_count를 1 증가
+
+	// 해제된 아이노드 데이터블럭 0으로 초기화
 	for (int i = 0; i < EXT2_N_BLOCKS; i++)
 	{
 		((INODE*)inodeBuffer)->block[i] = 0;
@@ -1769,13 +1861,11 @@ int ext2_remove(EXT2_NODE* file)
 
 	// 아이노드 비트맵 수정
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-	block_read(file->fs, (file->entry.inode / file->fs->sb.inode_per_group), file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
-	offset = (file->entry.inode + 1) % 8; // 섹터 내의 offset 계산
-	mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-	blockBuffer[file->entry.inode / 8] &= mask; // 비트맵 수정
-	block_write(file->fs, (file->entry.inode / file->fs->sb.inode_per_group), file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
-
-	// 해제된 아이노드 데이터블럭 0으로 초기화
+	block_read(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	offset = (file->entry.inode - 1) % 8; // 섹터 내의 offset 계산
+	mask = ~(1 << offset); // 오프셋을 1로 수정하기 위한 마스크
+	blockBuffer[(file->entry.inode - 1) / 8] &= mask; // 비트맵 수정
+	block_write(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	// 삭제된 엔트리라고 저장
 	file->entry.name[0] = DIR_ENTRY_FREE;
