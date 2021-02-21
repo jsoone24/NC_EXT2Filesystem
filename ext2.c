@@ -14,7 +14,7 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 	DWORD currentOffset, currentBlock, blockSeq = 0;
 	DWORD blockNumber, blockOffset;						 // sectorNumber, sectorOffset - removed	/ blockOffset - added 	 by seungmin	 
 	DWORD readEnd;
-	DWORD blockSize;
+	QWORD blockSize;
 	INODE node;
 	int i;
 
@@ -277,7 +277,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
-		if (fs->gd.free_blocks_count > 0)	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		if ((fs->gd.free_blocks_count > 0) || ((fs->sb.block_per_group - fs->gd.free_blocks_count) <= MAX_BLOCK_SIZE * 8))	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우 아이노드가 속한 블럭 그룹을 저장.
 			block_group_number = inode_which_block_group;
@@ -288,7 +288,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 			gdp = block;							//block에 맨 처음 주소를 gdp에 할당
 			for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에 다음으로 이동. 빈 공간이 있으면 해당 gdp 가지고 나옴
 			{
-				if (gdp -> free_blocks_count > 0)
+				if ((gdp -> free_blocks_count > 0) || (((fs->sb.block_per_group - gdp->free_blocks_count)) <= MAX_BLOCK_SIZE * 8))
 					break;
 				gdp++;
 			}
@@ -1264,6 +1264,8 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 			recur_num = 1;
 			parent_block_num = inode.block[13];
 			inode_array_offset = 13;
+			if(inode.blocks >= 8141)
+				printf("%d\n", inode.blocks);
 		}
 		else if (inode.blocks >= indirect_boundary)	//블럭수가 이중블럭 경계보다 크다는 건 간접 블럭에 들어가야 한다는 뜻, 경계에 걸치면 블럭 할당 필요
 		{
@@ -1381,8 +1383,8 @@ int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR* gd, EXT2_SUPER_BLOCK* sb, SECTO
 	gd->start_block_of_block_bitmap = 2;
 	gd->start_block_of_inode_bitmap = 3;
 	gd->start_block_of_inode_table = 4;
-	gd->free_blocks_count = (UINT16)(sb->free_block_count / NUMBER_OF_GROUPS + sb->free_block_count % NUMBER_OF_GROUPS);
-	gd->free_inodes_count = (UINT16)(((sb->free_inode_count) + 10) / NUMBER_OF_GROUPS - 10);
+	gd->free_blocks_count = (UINT32)(sb->free_block_count / NUMBER_OF_GROUPS + sb->free_block_count % NUMBER_OF_GROUPS);
+	gd->free_inodes_count = (UINT32)(((sb->free_inode_count) + 10) / NUMBER_OF_GROUPS - 10);
 	gd->directories_count = 0;
 
 	return EXT2_SUCCESS;
