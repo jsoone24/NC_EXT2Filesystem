@@ -730,11 +730,13 @@ int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을
 		WARNING("DISK OPERATIONS : %p\nEXT2_FILESYSTEM : %p\n", fs, fs->disk);
 		return EXT2_ERROR;
 	}
-
+	
+	
 	block_read(fs, 0, SUPER_BLOCK, sector);			   // meta_read -> block_read 	by seungmin
 	memcpy(&fs->sb, sector, sizeof(EXT2_SUPER_BLOCK)); // 첫번째 인자가 목적지, 두번째 인자가 어떤 것을 복사할지, 세번째는 크기
 	block_read(fs, 0, GROUP_DES, sector);			   // 그룹 디스크립터 읽는듯. 	/ meta_read -> block_read	by seungmin
 	memcpy(&fs->gd, sector, sizeof(EXT2_GROUP_DESCRIPTOR));
+	
 	//디스크에서 슈퍼블록 정보 입력을 받아와서 인자로 들어온 fs의 슈퍼블록을 업데이트하는 과정으로 생각됨.
 
 	if (fs->sb.magic_signature != 0xEF53) //슈퍼블럭인지 판단하는 필드. 고유값 확인으로.
@@ -1415,9 +1417,10 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 	{
 		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
 		block_read(fs, i, 0, sbBuffer);
-		(*((EXT2_SUPER_BLOCK*)sbBuffer)).free_block_count--;
+		((EXT2_SUPER_BLOCK*)sbBuffer)->free_block_count--;
 		block_write(fs, i, 0, sbBuffer);
 	}
+	fs->sb.free_block_count--;
 
 	// 현재 group descriptor의 free_blocks_count를 1 감소
 	fs->gd.free_blocks_count--;
@@ -1445,49 +1448,236 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 {
 	EXT2_SUPER_BLOCK sb;
-	BYTE inodeBuffer[sizeof(INODE)];
+	EXT2_GROUP_DESCRIPTOR* gd;
+	INODE	inodeBuffer;
 	BYTE	blockBitmap[MAX_BLOCK_SIZE];
 	BYTE	block[MAX_BLOCK_SIZE];
-	UINT32	num, offset, i, j;
+	BYTE	zeroBlock[MAX_BLOCK_SIZE];
+	BYTE	groupDescriptor[MAX_BLOCK_SIZE];
+	INT32	num, bitOffset;
 	BYTE	mask = 1;
-	UINT32 size = 0;
+	UINT32 freeCount = 0;
 
-	if (get_inode(fs, inode_num, (INODE*)inodeBuffer) == EXT2_ERROR) // inode number에 대한 메타데이터를 inodeBuffer에 저장
+	UINT32 available_block = 0;			//새로 할당할 데이터 블록 번호
+	UINT32 new_indirect_block = 0;		//새로 할당할 간접 블록 번호
+	UINT32 indirect_boundary = 12;		//간접 블록이 시작하는 경계
+	UINT32 entry_num_per_block = MAX_BLOCK_SIZE / 4;
+	UINT32 double_indirect_boundary = indirect_boundary + (entry_num_per_block);	//이중간접 블록이 시작하는 경계
+	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(entry_num_per_block);	//삼중간접 블럭이 시작하는 경계
+	UINT32 max_block_num = triple_indirect_boundary + TSQRT(entry_num_per_block);
+	UINT32 parent_block_num = 0;		//간접 블록 들어갈때 들어가기 전 블럭 번호 저장
+	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
+	UINT32 keep_parent;
+	INT32 keep_offset;
+	INT32 recur_num = 0;				//recursion 돌아야 하는 횟수
+	INT32 inode_block_offset = 0;		//간접 블럭을 재귀를 돌며 쉽게 계산하기 위해 number에서 12를 뺀값
+	INT32 offset = 0;					//간접블럭에서의 위치
+	UINT32 blockNumber;
+
+
+	if (get_inode(fs, inode_num, &inodeBuffer) == EXT2_ERROR) // inode number에 대한 메타데이터를 inodeBuffer에 저장
 		return;
 
-	// Update data block bitmap
-	for (i = 0; i < (*((INODE*)inodeBuffer)).blocks; i++)
+	ZeroMemory(groupDescriptor, MAX_BLOCK_SIZE);
+	block_read(fs, 0, 1, groupDescriptor);
+	gd = groupDescriptor;
+
+	ZeroMemory(&sb, sizeof(EXT2_SUPER_BLOCK));
+	block_read(fs, 0, 0, &sb);
+
+	num = (inodeBuffer.blocks) - 1;
+
+	while (num >= 0)
 	{
-		ZeroMemory(blockBitmap, MAX_BLOCK_SIZE);
-		num = get_data_block_at_inode(fs, (*((INODE*)inodeBuffer)), i + 1); // i번째 데이터블록 넘버
+		keep_parent = 0;
+		keep_offset = 0;
+		if (num < 12)
+		{
+			while (num >= 0 && inodeBuffer.block[num] )
+			{
+				blockNumber = inodeBuffer.block[num];
+				block_read(fs, (blockNumber/fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
+				bitOffset = blockNumber % 8; // 섹터 내의 offset 계산
+				mask = ~(mask << bitOffset); // 오프셋을 0으로 수정하기 위한 마스크
+				blockBitmap[blockNumber / 8] &= mask; // 비트맵 수정
+				block_write(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
 
-		block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
-		offset = num % 8; // 섹터 내의 offset 계산
-		mask = ~(mask << offset); // 오프셋을 0으로 수정하기 위한 마스크
-		blockBitmap[num / 8] &= mask; // 비트맵 수정
-		block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+				(gd + (blockNumber / fs->sb.block_per_group))->free_blocks_count++;
 
+				ZeroMemory(zeroBlock, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
+				block_write(fs, 0, blockNumber, zeroBlock);
+				num--;
+				freeCount++;
+			}
+		}
+		else	//간접블록 할당 요청시
+		{
+			if (num >= triple_indirect_boundary)		//요청한 블럭이 어느 간접 블럭에 있는지 확인, 삼중 간접블럭에 있음
+			{
+				recur_num = 2;
+				parent_block_num = inodeBuffer.block[14];
+			}
+			else if (num >= double_indirect_boundary) //요청한 블럭이 어느 간접 블럭에 있는지 확인, 이중 간접블럭에 있음
+			{
+				recur_num = 1;
+				parent_block_num = inodeBuffer.block[13];
+			}
+			else if (num >= indirect_boundary)		//요청한 블럭이 어느 간접 블럭에 있는지 확인, 간접블럭에 있음
+			{
+				recur_num = 0;
+				parent_block_num = inodeBuffer.block[12];
+			}
+			inode_block_offset = num - 12;						//찾아야하는 block의 offset. recursion할때마다 간접블럭에 맞게 숫자가 계속 바뀜
 
-		ZeroMemory(block, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
-		block_write(fs, 0, num, block);
+			while (recur_num >= 0)
+			{
+				if (parent_block_num == 0)	//부모 블럭이 비어있으면 아이노드 데이터 할당 되어 있지 않다고 리턴
+				{
+					printf("The 'blocks' value of INODE is not coincide with allocated block count\n");
+					num = -1;
+					break;
+				}
 
-		// 데이터 블록 그룹의 group descriptor의 free_blocks_count를 해제된 블록 개수만큼 증가
-		(((EXT2_GROUP_DESCRIPTOR*)&(fs->gd)) + WHICH_GROUP_BLONG(num))->free_blocks_count++;
+				ZeroMemory(block, MAX_BLOCK_SIZE);	//할당되어 있으면 부모 데이터 읽어옴
+				block_read(fs, 0, parent_block_num, block);
+
+				switch (recur_num)
+				{
+				case 0:	//최후 간접블럭에 도달한 경우 offset == 0~255 범위
+					while (((UINT32*)block)[inode_block_offset] && inode_block_offset >= 0)
+					{
+						blockNumber = ((UINT32*)block)[inode_block_offset];
+						block_read(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
+						bitOffset = blockNumber % 8; // 섹터 내의 offset 계산
+						mask = ~(mask << bitOffset); // 오프셋을 0으로 수정하기 위한 마스크
+						blockBitmap[blockNumber / 8] &= mask; // 비트맵 수정
+						block_write(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+
+						(gd + (blockNumber / fs->sb.block_per_group))->free_blocks_count++;
+
+						ZeroMemory(zeroBlock, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
+						block_write(fs, 0, blockNumber, zeroBlock);
+						inode_block_offset--;
+						freeCount++;
+						num--;
+					}
+					blockNumber = parent_block_num;
+					block_read(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
+					bitOffset = blockNumber % 8; // 섹터 내의 offset 계산
+					mask = ~(mask << bitOffset); // 오프셋을 0으로 수정하기 위한 마스크
+					blockBitmap[blockNumber / 8] &= mask; // 비트맵 수정
+					block_write(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+
+					(gd + (blockNumber / fs->sb.block_per_group))->free_blocks_count++;
+
+					ZeroMemory(zeroBlock, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
+					block_write(fs, 0, blockNumber, zeroBlock);
+					freeCount++;
+
+					ZeroMemory(block, MAX_BLOCK_SIZE);	//할당되어 있으면 부모 데이터 읽어옴
+					block_read(fs, 0, keep_parent, block);
+
+					if (keep_parent == 0)
+					{
+						recur_num = 0;
+						offset = 0;
+						break;
+					}
+
+					recur_num+=2;
+					break;
+				case 1:	//삼중간접블럭의 이중간접블럭, 아니면 원래 이중간접블럭에 도달한 경우 offset == 
+					if (inode_block_offset < 0)
+					{
+						inode_block_offset = 255;
+						offset--;
+						if (offset < 0)
+						{
+							blockNumber = keep_parent;
+							block_read(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
+							bitOffset = blockNumber % 8; // 섹터 내의 offset 계산
+							mask = ~(mask << bitOffset); // 오프셋을 0으로 수정하기 위한 마스크
+							blockBitmap[blockNumber / 8] &= mask; // 비트맵 수정
+							block_write(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+
+							(gd + (blockNumber / fs->sb.block_per_group))->free_blocks_count++;
+
+							ZeroMemory(zeroBlock, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
+							block_write(fs, 0, blockNumber, zeroBlock);
+							freeCount++;
+
+							ZeroMemory(block, MAX_BLOCK_SIZE);	//할당되어 있으면 부모 데이터 읽어옴
+							block_read(fs, 0, inodeBuffer.block[14], block);
+
+							if (keep_offset == 0)
+							{
+								recur_num = 0;
+								offset = 0;
+								break;
+							}
+
+							recur_num += 2;
+						}
+						break;
+					}
+
+					offset = (inode_block_offset -  entry_num_per_block) /  entry_num_per_block;
+					inode_block_offset = inode_block_offset %  entry_num_per_block;
+					keep_parent = parent_block_num;
+					break;
+				case 2:
+					if (offset < 0)
+					{
+
+						keep_offset--;
+						offset = keep_offset;
+						inode_block_offset = ((entry_num_per_block - 1) * entry_num_per_block) + entry_num_per_block + (entry_num_per_block - 1);
+						if (offset < 0)
+						{
+							blockNumber = inodeBuffer.block[14];
+							block_read(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
+							bitOffset = blockNumber % 8; // 섹터 내의 offset 계산
+							mask = ~(mask << bitOffset); // 오프셋을 0으로 수정하기 위한 마스크
+							blockBitmap[blockNumber / 8] &= mask; // 비트맵 수정
+							block_write(fs, (blockNumber / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+
+							(gd + (blockNumber / fs->sb.block_per_group))->free_blocks_count++;
+
+							ZeroMemory(zeroBlock, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
+							block_write(fs, 0, blockNumber, zeroBlock);
+							freeCount++;
+
+							recur_num = 0;
+							offset = 0;
+							break;
+						}
+					}
+					offset = (inode_block_offset -  entry_num_per_block - SQRT( entry_num_per_block)) / SQRT( entry_num_per_block);
+					inode_block_offset = inode_block_offset % SQRT( entry_num_per_block);
+					keep_offset = offset;
+					break;
+				}
+
+				parent_block_num = ((UINT32*)block)[offset];
+				recur_num--;
+			}
+		}
 	}
-	
-	ZeroMemory(&((*((INODE*)inodeBuffer)).block), sizeof(block));
-	(*((INODE*)inodeBuffer)).blocks = 0;
-	(*((INODE*)inodeBuffer)).size = 0;
-	set_inode_onto_inode_table(fs, inode_num, (INODE*)inodeBuffer);	//아이노드에 할당된 데이터 블록 해제해 줬으니 아이노드 정보 수정
 
-	// 모든 super block의 free_block_count를 해제된 블록 개수만큼 증가
-	for (j = 0; j < NUMBER_OF_GROUPS; j++)
+	(gd + (inode_num / fs->sb.inode_per_group))->free_inodes_count++;
+	for (int i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
-		ZeroMemory(&sb, sizeof(EXT2_SUPER_BLOCK));
-		block_read(fs, i, 0, &sb);
-		sb.free_block_count += (i + 1);
+		block_write(fs, i, 1, groupDescriptor );
+	}
+
+	sb.free_block_count += freeCount;
+	sb.free_inode_count++;
+	for (int i = 0; i < NUMBER_OF_GROUPS; i++)
+	{
 		block_write(fs, i, 0, &sb);
 	}
+	fs->sb.free_block_count += freeCount;
+	fs->sb.free_inode_count++;
 
 	return;
 }
@@ -1505,29 +1695,31 @@ int ext2_remove(EXT2_NODE* file)
 	result = get_inode(file->fs, file->entry.inode, (INODE*)inodeBuffer); // inode number에 대한 메타데이터를 inodeBuffer에 저장
 	if (result == EXT2_ERROR)
 		return EXT2_ERROR;
+	printf("%d\n", file->entry.inode);
 
 	if ((((INODE*)inodeBuffer)->mode & fileTypeMask) && FILE_TYPE_DIR)  // 해당 엔트리가 디렉터리이면 에러
 		return EXT2_ERROR;
 	
 	// 데이터블록 비트맵 수정
-	process_meta_data_for_block_used(file->fs, file->entry.inode, 1);
+	process_meta_data_for_block_free(file->fs, file->entry.inode);
 
-	file->fs->sb.free_inode_count++;
-	file->fs->gd.free_inodes_count++;
-
-	// 아이노드 비트맵 수정
-	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-	block_read(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
-	offset = (file->entry.inode + 1) % 8; // 섹터 내의 offset 계산
-	mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
-	blockBuffer[file->entry.inode / 8] &= mask; // 비트맵 수정
-	block_write(file->fs, 0, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
-
-	// 해제된 아이노드 데이터블럭 0으로 초기화
-	for (i = 0; i < EXT2_N_BLOCKS; i++)
+	for (int i = 0; i < EXT2_N_BLOCKS; i++)
 	{
 		((INODE*)inodeBuffer)->block[i] = 0;
 	}
+	((INODE*)inodeBuffer)->blocks = 0;
+	((INODE*)inodeBuffer)->size = 0;
+	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer);	//아이노드에 할당된 데이터 블록 해제해 줬으니 아이노드 정보 수정
+
+	// 아이노드 비트맵 수정
+	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
+	block_read(file->fs, (file->entry.inode / file->fs->sb.inode_per_group), file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	offset = (file->entry.inode + 1) % 8; // 섹터 내의 offset 계산
+	mask = ~(1 << offset); // 오프셋을 0으로 수정하기 위한 마스크
+	blockBuffer[file->entry.inode / 8] &= mask; // 비트맵 수정
+	block_write(file->fs, (file->entry.inode / file->fs->sb.inode_per_group), file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
+
+	// 해제된 아이노드 데이터블럭 0으로 초기화
 
 	// 삭제된 엔트리라고 저장
 	file->entry.name[0] = DIR_ENTRY_FREE;
@@ -1617,7 +1809,7 @@ int ext2_df(EXT2_FILESYSTEM* fs, unsigned int* total, unsigned int* used)
 	*/
 	*total = fs->sb.block_count;
 	*used = *total - fs->sb.free_block_count;
-
+	
 	return EXT2_SUCCESS;
 }
 
