@@ -1,5 +1,3 @@
-
-
 typedef struct
 {
 	char* address;
@@ -117,28 +115,47 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 	세 번째 인자일 fileType은 파일이 디렉토리인지 아닌지 등을 판단해 메타데이터 수정 시 사용할 듯
 	*/
 	// 일단은 사용되었을 때(할당)를 가정. 해제는 고려하지 않음
-	retEntry->fs->sb.free_inode_count--;
-	retEntry->fs->gd.free_inodes_count--;
-	retEntry->entry.inode = inode_num;
-
-	BYTE inodeBuffer[sizeof(INODE)];
-	BYTE	blockBuffer[MAX_BLOCK_SIZE];
-	UINT32	offset;
+	BYTE	inodeBuffer[sizeof(INODE)];
+	BYTE	sector[MAX_BLOCK_SIZE];
+	UINT32	i, offset;
 	BYTE	mask = 1;
+	UINT32	groupNum = GET_INODE_GROUP(inode_num);
 
 	if (get_inode(retEntry->fs, inode_num, inodeBuffer) == EXT2_ERROR) // inode number에 대한 메타데이터를 inodeBuffer에 저장
 		return;
 
+	retEntry->entry.inode = inode_num; // retEntry의 아이노드 번호를 inode_num으로 지정
 	((INODE*)inodeBuffer)->mode = fileType; // file type 지정
 	set_inode_onto_inode_table(retEntry->fs, inode_num, (INODE*)inodeBuffer); // 아이노드 테이블 업데이트
 
+	// 디스크의 sb.free_inode_count를 1 감소
+	for (i = 0; i < NUMBER_OF_GROUPS; i++)
+	{
+		ZeroMemory(sector, sizeof(sector));
+		block_read(retEntry->fs, i, 0, sector);
+		((EXT2_SUPER_BLOCK*)sector)->free_inode_count--;
+		block_write(retEntry->fs, i, 0, sector);
+	}
+	// fs의 sb.free_inode_count를 1 감소
+	retEntry->fs->sb.free_inode_count--;
+
+	// 디스크의 gd.free_inodes_count 1 감소
+	ZeroMemory(sector, sizeof(sector));
+	block_read(retEntry->fs, groupNum, 1, sector);
+	((EXT2_GROUP_DESCRIPTOR*)sector[groupNum])->free_inodes_count--;
+	block_write(retEntry->fs, groupNum, 1, sector);
+
+	// fs의 gd.free_blocks_count를 1 감소
+	EXT2_GROUP_DESCRIPTOR *gdp = &(retEntry->fs->gd);
+	gdp[groupNum].free_inodes_count--;
+
 	// Update inode bitmap
-	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
+	ZeroMemory(sector, MAX_BLOCK_SIZE);
+	block_read(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (inode_num - 1) % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	blockBuffer[(inode_num - 1) / 8] |= mask; // 비트맵 수정
-	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
+	sector[(inode_num - 1) / 8] |= mask; // 비트맵 수정
+	block_write(retEntry->fs, 0, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
 }
@@ -651,6 +668,7 @@ int get_data_block_at_inode(EXT2_FILESYSTEM* fs, INODE inode, UINT32 number)	//i
 	UINT32 double_indirect_boundary = indirect_boundary + entry_num_per_block;	//이중간접 블록이 시작하는 경계
 	UINT32 triple_indirect_boundary = double_indirect_boundary + SQRT(entry_num_per_block);	//삼중간접 블럭이 시작하는 경계
 	UINT32 max_block_num = triple_indirect_boundary + TSQRT(entry_num_per_block);
+
 	UINT32 parent_block_num = 0;		//간접 블록 들어갈때 들어가기 전 블럭 번호 저장
 	// 한 아이노드에서 가르킬 수 있는 데이터 블록의 최대 개수 - 직접 블록 12개 + 간접 블록 + 2중 간접 블록+ 3중 간접 블록
 	BYTE block[MAX_BLOCK_SIZE];
@@ -746,6 +764,7 @@ int ext2_read_superblock(EXT2_FILESYSTEM *fs, EXT2_NODE *root) //슈퍼블록을
 		return EXT2_ERROR;
 
 	ZeroMemory(sector, sizeof(MAX_BLOCK_SIZE)); //메모리 초기화.
+  
 	if (read_root_block(fs, sector))			 //슈퍼블록이 루트 디렉터리를 제대로 가리키는지 체크하기 위한 부분이 아닐까 생각.
 		return EXT2_ERROR;
 
@@ -1156,6 +1175,7 @@ int ext2_create(EXT2_NODE* parent, char* entryName, EXT2_NODE* retEntry) //파�
 {
 	if ((parent->fs->gd.free_inodes_count) == 0)
 		return EXT2_ERROR; //상성가능한 아이노드 공간이 없으면 에러
+  
 	UINT32 inode;
 	BYTE name[MAX_NAME_LENGTH] = {
 		0,
@@ -1451,32 +1471,43 @@ void print_buffer(unsigned char* buffer)
 // block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
 void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UINT32 block_num)
 {
-	printf("\n\tprocess_meta_data_for_block_used\n");
-	printf("\tinode_num = %d\tblock_num = %d\n", inode_num, block_num);
-	BYTE	sbBuffer[MAX_BLOCK_SIZE];
-	BYTE	blockBitmap[MAX_BLOCK_SIZE];
+	// EXT2_SUPER_BLOCK *sb;
+	BYTE	sector[MAX_BLOCK_SIZE];
 	UINT32	i, offset;
 	BYTE	mask = 1;
+	UINT32	groupNum = GET_INODE_GROUP(inode_num);
 
-	// 모든 super block의 free_block_count를 1 감소
+	// 디스크의 sb.free_block_count를 1 감소
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
 	{
-		ZeroMemory(sbBuffer, sizeof(EXT2_SUPER_BLOCK));
-		block_read(fs, i, 0, sbBuffer);
-		((EXT2_SUPER_BLOCK*)sbBuffer)->free_block_count--;
-		block_write(fs, i, 0, sbBuffer);
+		ZeroMemory(sector, sizeof(sector));
+		block_read(fs, i, 0, sector);
+		((EXT2_SUPER_BLOCK*)sector)->free_block_count--;
+		// sb = (EXT2_SUPER_BLOCK *)sector;
+		// sb->free_block_count--;
+		// memcpy(sector, sb, MAX_BLOCK_SIZE);
+		block_write(fs, i, 0, sector);
 	}
+	// fs의 sb.free_block_count를 1 감소
+	fs->sb.free_block_count--;
 
-	// 현재 group descriptor의 free_blocks_count를 1 감소
-	fs->gd.free_blocks_count--;
+	// 디스크의 gd.free_blocks_count를 1 감소
+	ZeroMemory(sector, sizeof(sector));
+	block_read(fs, groupNum, 1, sector);
+	((EXT2_GROUP_DESCRIPTOR*)sector[groupNum])->free_blocks_count--;
+	block_write(fs, groupNum, 1, sector);
+
+	// fs의 gd.free_blocks_count를 1 감소
+	EXT2_GROUP_DESCRIPTOR *gdp = &(fs->gd);
+	gdp[groupNum].free_blocks_count--;
 
 	// Update data block bitmap
-	ZeroMemory(blockBitmap, MAX_BLOCK_SIZE);
-	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 sector 버퍼에 저장
+	ZeroMemory(sector, sizeof(sector));
+	block_read(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
 	offset = block_num % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	blockBitmap[block_num / 8] |= mask; // 비트맵 수정
-	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+	sector[block_num / 8] |= mask; // 비트맵 수정
+	block_write(fs, 0, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
 
@@ -1600,48 +1631,49 @@ int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char*
 	DWORD	currentOffset, currentBlock, blockSeq = 0;	// currentOffset: 현재 읽고있는 offset 위치, currentBlock: 현재 읽고있는 데이터블록 번호, blockSeq: 몇번째 블록까지 읽었는지
 	DWORD	blockNumber, sectorNumber, sectorOffset;	// blockNumber: 몇번째 블록인지, sectorNumber: 블록 내에서 몇번째 섹터인지, sectorOffset: 섹터 내에서 몇번째 offset인지
 	DWORD	readEnd;
-	DWORD	blockSize, blockOffset = 0;
+	DWORD	blockOffset = 0;
 	INODE	node;
 	int		sectorsPerBlock = MAX_SECTOR_SIZE / MAX_BLOCK_SIZE;
-	int i;
+	int		i;
 
 	get_inode(file->fs, file->entry.inode, &node); // 읽을 파일의 아이노드 메타데이터를 node에 저장
 	currentBlock = node.block[0]; // 시작 블록 번호를 읽어옴
+	readEnd = offset + length; // 읽고자 하는 마지막 위치
 
-	blockSize = MAX_BLOCK_SIZE;
-	blockOffset = blockSize; // 블럭 offset은 블럭 크기 단위로 증가
+	currentOffset = offset; // 읽기 시작할 위치 offset
+	
+	blockOffset = MAX_BLOCK_SIZE; // 블럭 offset은 블럭 크기 단위로 증가
 	i = 1;
 	while (offset > blockOffset) // 읽고자 하는 위치에 맞게 currentBlock과 blockSeq 조정
 	{
 		currentBlock = get_data_block_at_inode(file->fs, node, ++i); // node의 i번째 데이터블록 번호
-		blockOffset += blockSize; // blockOffset 증가
+		blockOffset += MAX_BLOCK_SIZE; // blockOffset 증가
 		blockSeq++; // 몇번째 블록까지 읽었는지 저장하는 변수 증가
 	}
-
-	currentOffset = offset; // 읽기 시작할 위치 offset
-	readEnd = offset + length; // 읽고자 하는 마지막 위치
 
 	while (currentOffset < readEnd) // 현재 offset이 읽고자 하는 위치보다 앞쪽인동안
 	{
 		DWORD	copyLength; // 복사할 데이터의 Byte단위 길이
-
-		blockNumber = currentOffset / (file->fs->disk->bytesPerSector * sectorsPerBlock); // 현재 offset이 몇번째 블록인지 계산
+		blockNumber = currentOffset / MAX_BLOCK_SIZE; // 현재 offset이 몇번째 블록인지 계산
+		
 		if (blockSeq != blockNumber) // 다음 블록으로 넘어갔다면
 		{
 			blockSeq++; // 몇번째 블록까지 읽었는지 저장하는 변수 증가
 			++i;
 			currentBlock = get_data_block_at_inode(file->fs, node, i); // 다음 블록으로 currentBlock을 변경
 		}
-		sectorNumber = (currentOffset / file->fs->disk->bytesPerSector) % sectorsPerBlock; // 블록 내에서 몇번째 섹터인지 계산
-		sectorOffset = currentOffset % file->fs->disk->bytesPerSector; // 섹터 내에서 몇번째 offset인지 계산
+		// sectorNumber = (currentOffset / file->fs->disk->bytesPerSector) % sectorsPerBlock; // 블록 내에서 몇번째 섹터인지 계산
+		// sectorOffset = currentOffset % file->fs->disk->bytesPerSector; // 섹터 내에서 몇번째 offset인지 계산
 
-		if (data_read(file->fs, GET_INODE_GROUP(file->entry.inode), currentBlock, sector)) // 계산한 위치의 데이터를 섹터단위로 읽음
+		blockOffset = currentOffset % MAX_BLOCK_SIZE;
+
+		if (block_read(file->fs, GET_INODE_GROUP(file->entry.inode), currentBlock, sector)) // 계산한 위치의 데이터를 섹터단위로 읽음
 			break;
 
 		// 현재 읽어야 할 데이터가 마지막 데이터인지 판단. 마지막 데이터가 아니면 전자, 마지막 데이터이면 후자
-		copyLength = MIN(file->fs->disk->bytesPerSector - sectorOffset, readEnd - currentOffset); // 다음 루프에서 버퍼로 복사할 크기
+		copyLength = MIN(MAX_BLOCK_SIZE - blockOffset, readEnd - currentOffset); // 다음 루프에서 버퍼로 복사할 크기
 
-		memcpy(buffer, &sector[sectorOffset], copyLength); // 디스크에서 읽어온 데이터를 copyLength만큼 buffer에 복사
+		memcpy(buffer, &sector[blockOffset], copyLength); // 디스크에서 읽어온 데이터를 copyLength만큼 buffer에 복사
 
 		buffer += copyLength; // 다음 데이터를 저장할 위치로 이동
 		currentOffset += copyLength; // 다음 데이터를 읽기 위해 offset 조정
@@ -1712,8 +1744,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 				memcpy(((EXT2_DIR_ENTRY*)(&block[_dir->location.offset]))->name, DIR_ENTRY_FREE, sizeof(DIR_ENTRY_FREE));	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);					//디렉터리 엔트리 값을 바꾸고 저장.
 
-				//그룹디스크립터 수정: directories_count 변수 수정.
-				
+				//그룹디스크립터 수정: directories_count 변수 수정.				
 				_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
 				ZeroMemory(block, MAX_BLOCK_SIZE);
 				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
@@ -1777,9 +1808,6 @@ int ext2_rmdir(EXT2_NODE* dir)
 				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
 				block_write(_dir->fs,0, GROUP_DES, block);
-
-				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + dir->location.group)->directories_count--;	//그룹디스크립터의 사용중인 디렉터리 수 감소
-				(((EXT2_GROUP_DESCRIPTOR*)&(_dir->fs->gd)) + dir->location.group)->free_inodes_count++;	//그룹디스크립터의 할당가능한 아이노드 수 증가
 
 				//슈퍼블럭 수정: free_inode_count 증가
 				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.
