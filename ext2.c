@@ -1586,48 +1586,50 @@ int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char*
 	DWORD	currentOffset, currentBlock, blockSeq = 0;	// currentOffset: 현재 읽고있는 offset 위치, currentBlock: 현재 읽고있는 데이터블록 번호, blockSeq: 몇번째 블록까지 읽었는지
 	DWORD	blockNumber, sectorNumber, sectorOffset;	// blockNumber: 몇번째 블록인지, sectorNumber: 블록 내에서 몇번째 섹터인지, sectorOffset: 섹터 내에서 몇번째 offset인지
 	DWORD	readEnd;
-	DWORD	blockSize, blockOffset = 0;
+	DWORD	blockOffset = 0;
 	INODE	node;
 	int		sectorsPerBlock = MAX_SECTOR_SIZE / MAX_BLOCK_SIZE;
-	int i;
+	int		i;
 
 	get_inode(file->fs, file->entry.inode, &node); // 읽을 파일의 아이노드 메타데이터를 node에 저장
 	currentBlock = node.block[0]; // 시작 블록 번호를 읽어옴
+	readEnd = offset + length; // 읽고자 하는 마지막 위치
 
-	blockSize = MAX_BLOCK_SIZE;
-	blockOffset = blockSize; // 블럭 offset은 블럭 크기 단위로 증가
+	currentOffset = offset; // 읽기 시작할 위치 offset
+	
+	blockOffset = MAX_BLOCK_SIZE; // 블럭 offset은 블럭 크기 단위로 증가
 	i = 1;
 	while (offset > blockOffset) // 읽고자 하는 위치에 맞게 currentBlock과 blockSeq 조정
 	{
 		currentBlock = get_data_block_at_inode(file->fs, node, ++i); // node의 i번째 데이터블록 번호
-		blockOffset += blockSize; // blockOffset 증가
+		blockOffset += MAX_BLOCK_SIZE; // blockOffset 증가
 		blockSeq++; // 몇번째 블록까지 읽었는지 저장하는 변수 증가
 	}
-
-	currentOffset = offset; // 읽기 시작할 위치 offset
-	readEnd = offset + length; // 읽고자 하는 마지막 위치
 
 	while (currentOffset < readEnd) // 현재 offset이 읽고자 하는 위치보다 앞쪽인동안
 	{
 		DWORD	copyLength; // 복사할 데이터의 Byte단위 길이
 
-		blockNumber = currentOffset / (file->fs->disk->bytesPerSector * sectorsPerBlock); // 현재 offset이 몇번째 블록인지 계산
+		blockNumber = currentOffset / MAX_BLOCK_SIZE; // 현재 offset이 몇번째 블록인지 계산
+		
 		if (blockSeq != blockNumber) // 다음 블록으로 넘어갔다면
 		{
 			blockSeq++; // 몇번째 블록까지 읽었는지 저장하는 변수 증가
 			++i;
 			currentBlock = get_data_block_at_inode(file->fs, node, i); // 다음 블록으로 currentBlock을 변경
 		}
-		sectorNumber = (currentOffset / file->fs->disk->bytesPerSector) % sectorsPerBlock; // 블록 내에서 몇번째 섹터인지 계산
-		sectorOffset = currentOffset % file->fs->disk->bytesPerSector; // 섹터 내에서 몇번째 offset인지 계산
+		// sectorNumber = (currentOffset / file->fs->disk->bytesPerSector) % sectorsPerBlock; // 블록 내에서 몇번째 섹터인지 계산
+		// sectorOffset = currentOffset % file->fs->disk->bytesPerSector; // 섹터 내에서 몇번째 offset인지 계산
 
-		if (data_read(file->fs, GET_INODE_GROUP(file->entry.inode), currentBlock, sector)) // 계산한 위치의 데이터를 섹터단위로 읽음
+		blockOffset = currentOffset % MAX_BLOCK_SIZE;
+
+		if (block_read(file->fs, GET_INODE_GROUP(file->entry.inode), currentBlock, sector)) // 계산한 위치의 데이터를 섹터단위로 읽음
 			break;
 
 		// 현재 읽어야 할 데이터가 마지막 데이터인지 판단. 마지막 데이터가 아니면 전자, 마지막 데이터이면 후자
-		copyLength = MIN(file->fs->disk->bytesPerSector - sectorOffset, readEnd - currentOffset); // 다음 루프에서 버퍼로 복사할 크기
+		copyLength = MIN(MAX_BLOCK_SIZE - blockOffset, readEnd - currentOffset); // 다음 루프에서 버퍼로 복사할 크기
 
-		memcpy(buffer, &sector[sectorOffset], copyLength); // 디스크에서 읽어온 데이터를 copyLength만큼 buffer에 복사
+		memcpy(buffer, &sector[blockOffset], copyLength); // 디스크에서 읽어온 데이터를 copyLength만큼 buffer에 복사
 
 		buffer += copyLength; // 다음 데이터를 저장할 위치로 이동
 		currentOffset += copyLength; // 다음 데이터를 읽기 위해 offset 조정
