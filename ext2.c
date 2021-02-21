@@ -277,7 +277,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
-		if ((fs->gd.free_blocks_count > 0) || ((fs->sb.block_per_group - fs->gd.free_blocks_count) <= MAX_BLOCK_SIZE * 8))	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
+		if ((fs->gd.free_blocks_count > 0) && ((fs->sb.block_per_group - fs->gd.free_blocks_count) + 3 < MAX_BLOCK_SIZE * 8))	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우 아이노드가 속한 블럭 그룹을 저장.
 			block_group_number = inode_which_block_group;
@@ -288,7 +288,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 			gdp = block;							//block에 맨 처음 주소를 gdp에 할당
 			for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에 다음으로 이동. 빈 공간이 있으면 해당 gdp 가지고 나옴
 			{
-				if ((gdp -> free_blocks_count > 0) || (((fs->sb.block_per_group - gdp->free_blocks_count)) <= MAX_BLOCK_SIZE * 8))
+				if ((gdp -> free_blocks_count > 0) && (((fs->sb.block_per_group - gdp->free_blocks_count)) + 3 < MAX_BLOCK_SIZE * 8))
 					break;
 				gdp++;
 			}
@@ -1300,6 +1300,9 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 				available_block = get_available_data_block(fs, inode_num);	//최종적으로 할당할 블럭
 				if (available_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
 					return EXT2_ERROR;
+
+				if (available_block == 8191)
+					printf("%d\n",	available_block);
 
 				process_meta_data_for_block_used(fs, inode_num, available_block);
 				block[inode_block_offset] = available_block;				//가장 최후의 간접 블록에 사용 표시
