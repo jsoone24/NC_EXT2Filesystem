@@ -10,7 +10,7 @@
 
 #define		SECTOR					DWORD
 //#define		BLOCK_SIZE				4096
-#define		BLOCK_SIZE				1024
+#define		BLOCK_SIZE				2048
 #define		SECTOR_SIZE				1024
 #define		NUMBER_OF_SECTORS		(2097152 + 4)
 
