@@ -198,6 +198,7 @@ int insert_entry(UINT32 inode_num, EXT2_NODE* retEntry, int fileType)
 	if (GET_INODE_FROM_NODE(retEntry) == 0) // retEntry의 inode number가 없으면
 	{
 		retEntry_inodeNum = get_free_inode_number(retEntry->fs); // 새로운 inode number 할당
+		printf("\n\tretEntry_inodeNum = %d\n", retEntry_inodeNum);
 		process_meta_data_for_inode_used(retEntry, retEntry_inodeNum, fileType);
 	}
 
@@ -405,7 +406,7 @@ int lookup_entry(EXT2_FILESYSTEM* fs, const int inode, const char* name, EXT2_NO
 }
 
 // 섹터(데이터 블록)에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
-int find_entry_at_sector(const BYTE* sector, const BYTE* formattedName, UINT32 begin, UINT32 last, UINT32* number) //sector로 기준점이 들어오면, begin과 last로 섹터 범위를 지정해서 지정된 섹터만큼에서 검색하는걸까
+int find_entry_at_block(const BYTE* sector, const BYTE* formattedName, UINT32 begin, UINT32 last, UINT32* number) //sector로 기준점이 들어오면, begin과 last로 섹터 범위를 지정해서 지정된 섹터만큼에서 검색하는걸까
 {
 	//sector 파라미터는 block으로 생각.
 	//섹터 내부의 엔트리를 루프로 돌면서 formattedName과 이름이 같은 엔트리 검색
@@ -470,7 +471,7 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 
 	entriesPerBlock = MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY); // 블록 당 엔트리 수 = 32개. sizeof(EXT2_DIR_ENTRY) = 32Byte
 	lastEntry = entriesPerBlock - 1; // 탐색할 마지막 엔트리
-	result = find_entry_at_sector(blockBuffer, formattedName, 0, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+	result = find_entry_at_block(blockBuffer, formattedName, 0, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 
 	if (result == -1 || result == -2) // formattedName을 가진 엔트리가 없거나 더 이상 엔트리가 없다면 에러
 		return EXT2_ERROR;
@@ -517,7 +518,7 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 
 		beginEntry = blockOffset * entriesPerBlock; // 탐색할 시작 엔트리
 		lastEntry = beginEntry + entriesPerBlock - 1; // 탐색할 마지막 엔트리
-		result = find_entry_at_sector(blockBuffer, formattedName, beginEntry, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
+		result = find_entry_at_block(blockBuffer, formattedName, beginEntry, lastEntry, &number); // blockBuffer에서 formattedName을 가진 엔트리를 찾아 그 위치를 number에 저장
 
 		if (result == -1) // 해당 섹터에 formattedName을 가진 엔트리가 없다면 다음 섹터에서 검색
 			continue;
@@ -987,11 +988,9 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 		retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
 	}
 	ZeroMemory(block, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
-	printf("\n\tstart mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
+	block_read(retEntry->fs, groupNum, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
 	((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count++;
-	printf("\n\tfinish mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
-	block_write(retEntry->fs, 0, GROUP_DES, block);
+	block_write(retEntry->fs, groupNum, GROUP_DES, block);
 
 	return EXT2_SUCCESS;
 }
@@ -1924,13 +1923,13 @@ int ext2_rmdir(EXT2_NODE* dir)
 				((EXT2_DIR_ENTRY*)block)[_dir->location.offset].name[0] = DIR_ENTRY_FREE;	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);					//디렉터리 엔트리 값을 바꾸고 저장.
 
-				//그룹디스크립터 수정: directories_count 변수 수정.
-				if(0 == _dir->location.group)
-					_dir->fs->gd.directories_count--;			//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
+				//그룹디스크립터 수정: directories_count 변수 수정.				
+				if (block_group_number == 0)
+					_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
 				ZeroMemory(block, MAX_BLOCK_SIZE);
-				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
+				block_read(_dir->fs, block_group_number, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
-				block_write(_dir->fs, 0, GROUP_DES, block);
+				block_write(_dir->fs, block_group_number, GROUP_DES, block);
 			}
 			else //하드링크가 하나 연결되어 있는경우 폴더 완전 삭제를 의미
 			{
@@ -1991,10 +1990,8 @@ int ext2_rmdir(EXT2_NODE* dir)
 				}
 				ZeroMemory(block, MAX_BLOCK_SIZE);
 				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
-				printf("\n\tstart rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].free_inodes_count++;
-				printf("\n\tfinish rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				block_write(_dir->fs, 0, GROUP_DES, block);
 
 				//슈퍼블럭 수정: free_inode_count 증가
