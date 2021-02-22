@@ -482,11 +482,12 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 		ret->location.offset = number; // 블록 안에서의 offset
 
 		ret->fs = fs;
+		/*
 		block_read(fs, 0, GROUP_DES, blockBuffer);
 		memcpy(&(ret->fs->gd), &(((EXT2_GROUP_DESCRIPTOR*)blockBuffer)[GET_INODE_GROUP(entry[number].inode)]), sizeof(EXT2_GROUP_DESCRIPTOR));
 		block_read(fs, 0, SUPER_BLOCK, blockBuffer);
 		((EXT2_SUPER_BLOCK*)blockBuffer)->block_group_number = GET_INODE_GROUP(entry[number].inode);
-		memcpy(&(ret->fs->sb), blockBuffer, sizeof(EXT2_SUPER_BLOCK));
+		memcpy(&(ret->fs->sb), blockBuffer, sizeof(EXT2_SUPER_BLOCK));*/
 	}
 
 	return EXT2_SUCCESS;
@@ -527,16 +528,18 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 			{
 				memcpy(&ret->entry, &entry[number], sizeof(EXT2_DIR_ENTRY)); // 엔트리의 내용을 복사
 
-				ret->location.group = (blockNum - 1) / fs->sb.block_per_group;
-				ret->location.block = (blockNum - 1) % fs->sb.block_per_group;
+				ret->location.group = 0;
+				ret->location.block = blockNum;
 				ret->location.offset = number;
 
 				ret->fs = fs;
+				/*
 				block_read(fs, 0, GROUP_DES, blockBuffer);
 				memcpy(&(ret->fs->gd), &(((EXT2_GROUP_DESCRIPTOR*)blockBuffer)[GET_INODE_GROUP(entry[number].inode)]), sizeof(EXT2_GROUP_DESCRIPTOR));
 				block_read(fs, 0, SUPER_BLOCK, blockBuffer);
 				((EXT2_SUPER_BLOCK*)blockBuffer)->block_group_number = GET_INODE_GROUP(entry[number].inode);
 				memcpy(&(ret->fs->sb), blockBuffer, sizeof(EXT2_SUPER_BLOCK));
+				*/
 			}
 
 			return EXT2_SUCCESS;
