@@ -146,9 +146,11 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 	printf("inode_num : %d\n", inode_num);
 	printf("groupNum : %d\n", groupNum);
 	retEntry->fs->sb.free_inode_count--; // fs의 sb.free_inode_count를 1 감소
-	if(retEntry->fs->sb.block_group_number == groupNum)
+	if(0 == groupNum)
 		retEntry->fs->gd.free_inodes_count--; // fs의 gd.free_blocks_count를 1 감소
 
+	if (groupNum == 1)
+		printf("%d\n", groupNum);
 	// Update inode bitmap
 	ZeroMemory(sector, MAX_BLOCK_SIZE);
 	block_read(retEntry->fs, groupNum, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 blockBuffer 버퍼에 저장
@@ -952,6 +954,7 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 	retEntry->fs = parent->fs;										 // EXT2_FILESYSTEM 복사
 
 	result = insert_entry(parent->entry.inode, retEntry, FILE_TYPE_DIR); // 부모 디렉터리에 새로운 엔트리(retEntry) 추가
+	
 	if (result == EXT2_ERROR)											 // 에러 발생시 종료
 		return EXT2_ERROR;
 
@@ -980,13 +983,15 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 	//그룹디스크립터 수정: directories_count 변수 수정.				
 	groupNum = GET_INODE_GROUP(retEntry->entry.inode); //아이노드 속한 그룹 알아냄
 	if (groupNum == 0)
+	{
 		retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
+	}
 	ZeroMemory(block, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, groupNum, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
+	block_read(retEntry->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
 	printf("\n\tstart mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
 	((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count++;
 	printf("\n\tfinish mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
-	block_write(retEntry->fs, groupNum, GROUP_DES, block);
+	block_write(retEntry->fs, 0, GROUP_DES, block);
 
 	return EXT2_SUCCESS;
 }
@@ -1461,7 +1466,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 	UINT32	i, offset;
 	BYTE	mask = 1;
 	UINT32	inodeGroupNum = GET_INODE_GROUP(inode_num);
-	UINT32	blockGroupNum = (block_num - 1) / fs->sb.block_per_group;
+	UINT32	blockGroupNum = (block_num ) / fs->sb.block_per_group;
 
 	// 디스크의 super block과 group descriptor 수정
 	for (i = 0; i < NUMBER_OF_GROUPS; i++)
@@ -1480,7 +1485,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 	}
 	
 	fs->sb.free_block_count--; // fs의 sb.free_block_count를 1 감소
-	if(fs->sb.block_group_number == blockGroupNum)
+	if(0 == blockGroupNum)
 		fs->gd.free_blocks_count--; // fs의 gd.free_blocks_count를 1 감소
 
 	// Update data block bitmap
@@ -1488,7 +1493,7 @@ void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UIN
 	block_read(fs, blockGroupNum, fs->gd.start_block_of_block_bitmap, sector); // 데이터 블록 비트맵 sector 버퍼에 저장
 	offset = block_num % 8; // 섹터 내의 offset 계산
 	mask <<= offset; // 오프셋을 1로 수정하기 위한 마스크
-	sector[((block_num - 1) % fs->sb.block_per_group) / 8] |= mask; // 비트맵 수정
+	sector[((block_num ) % fs->sb.block_per_group) / 8] |= mask; // 비트맵 수정
 	block_write(fs, blockGroupNum, fs->gd.start_block_of_block_bitmap, sector); // 디스크에 수정된 비트맵 저장
 
 	return;
@@ -1553,14 +1558,14 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 			while (num >= 0 && inodeBuffer.block[num] )
 			{
 				blockNumber = inodeBuffer.block[num];
-				block_read(fs, ((blockNumber - 1)/fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
+				block_read(fs, ((blockNumber )/fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 데이터 블록 비트맵 blockBitmap 버퍼에 저장
 				bitOffset = blockNumber % 8; // 섹터 내의 offset 계산
 				mask = ~(mask << bitOffset); // 오프셋을 0으로 수정하기 위한 마스크
-				blockBitmap[((blockNumber - 1) % fs->sb.block_per_group) / 8] &= mask; // 비트맵 수정
-				block_write(fs, ((blockNumber - 1) / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
+				blockBitmap[((blockNumber ) % fs->sb.block_per_group) / 8] &= mask; // 비트맵 수정
+				block_write(fs, ((blockNumber ) / fs->sb.block_per_group), fs->gd.start_block_of_block_bitmap, blockBitmap); // 디스크에 수정된 비트맵 저장
 
-				(gd + ((blockNumber - 1) / fs->sb.block_per_group))->free_blocks_count++;
-				if (fs->sb.block_group_number == ((blockNumber - 1) / fs->sb.block_per_group))
+				(gd + ((blockNumber ) / fs->sb.block_per_group))->free_blocks_count++;
+				if (0 == ((blockNumber ) / fs->sb.block_per_group))
 					fs->gd.free_blocks_count--;
 
 				ZeroMemory(zeroBlock, MAX_BLOCK_SIZE);	//데이터 블록 할당 해제 후 초기화.
@@ -1781,7 +1786,7 @@ int ext2_remove(EXT2_NODE* file)
 	block_read(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (file->entry.inode - 1) % 8; // 섹터 내의 offset 계산
 	mask = ~(1 << offset); // 오프셋을 1로 수정하기 위한 마스크
-	blockBuffer[((file->entry.inode) % (file->fs->sb.inode_per_group)) / 8] &= mask; // 비트맵 수정
+	blockBuffer[((file->entry.inode - 1) % (file->fs->sb.inode_per_group)) / 8] &= mask; // 비트맵 수정
 	block_write(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	// 삭제된 엔트리라고 저장
@@ -1920,7 +1925,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);					//디렉터리 엔트리 값을 바꾸고 저장.
 
 				//그룹디스크립터 수정: directories_count 변수 수정.
-				if(_dir->fs->sb.block_group_number == _dir->location.group)
+				if(0 == _dir->location.group)
 					_dir->fs->gd.directories_count--;			//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
 				ZeroMemory(block, MAX_BLOCK_SIZE);
 				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
@@ -1985,12 +1990,12 @@ int ext2_rmdir(EXT2_NODE* dir)
 					_dir->fs->gd.free_inodes_count++;
 				}
 				ZeroMemory(block, MAX_BLOCK_SIZE);
-				block_read(_dir->fs, block_group_number, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
+				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
 				printf("\n\tstart rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].free_inodes_count++;
 				printf("\n\tfinish rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
-				block_write(_dir->fs,block_group_number, GROUP_DES, block);
+				block_write(_dir->fs, 0, GROUP_DES, block);
 
 				//슈퍼블럭 수정: free_inode_count 증가
 				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.
