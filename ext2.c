@@ -310,7 +310,6 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 					temp >>= 1;
 
 				result = (_fs->sb.block_per_group * block_group_number) + (i * 8) + j;	//블럭 번호 계산해서 저장.
-				printf("blockNumber : %d\n", result);
 				return result;
 			}
 		}
@@ -1783,7 +1782,7 @@ int ext2_remove(EXT2_NODE* file)
 	block_read(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 아이노드 비트맵 blockBuffer 버퍼에 저장
 	offset = (file->entry.inode - 1) % 8; // 섹터 내의 offset 계산
 	mask = ~(1 << offset); // 오프셋을 1로 수정하기 위한 마스크
-	blockBuffer[(file->entry.inode - 1) / 8] &= mask; // 비트맵 수정
+	blockBuffer[((file->entry.inode) % (file->fs->sb.inode_per_group)) / 8] &= mask; // 비트맵 수정
 	block_write(file->fs, groupNum, file->fs->gd.start_block_of_inode_bitmap, blockBuffer); // 디스크에 수정된 비트맵 저장
 
 	// 삭제된 엔트리라고 저장
