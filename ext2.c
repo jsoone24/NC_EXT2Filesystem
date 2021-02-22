@@ -982,13 +982,14 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 
 	//그룹디스크립터 수정: directories_count 변수 수정.				
 	groupNum = GET_INODE_GROUP(retEntry->entry.inode); //아이노드 속한 그룹 알아냄
-	retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
+	if (groupNum == 0)
+		retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
 	ZeroMemory(block, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
+	block_read(retEntry->fs, groupNum, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
 	printf("\n\tstart mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
 	((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count++;
 	printf("\n\tfinish mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
-	block_write(retEntry->fs, 0, GROUP_DES, block);
+	block_write(retEntry->fs, groupNum, GROUP_DES, block);
 
 	return EXT2_SUCCESS;
 }
@@ -1982,13 +1983,14 @@ int ext2_rmdir(EXT2_NODE* dir)
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);	//디렉터리 엔트리 값을 바꾸고 저장.
 
 				//그룹디스크립터 수정: directories_count 감소, free_inode_count 증가
-				_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
+				if (block_group_number == 0)
+					_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
 				ZeroMemory(block, MAX_BLOCK_SIZE);
-				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
+				block_read(_dir->fs, block_group_number, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
 				printf("\n\tstart rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
 				printf("\n\tfinish rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
-				block_write(_dir->fs,0, GROUP_DES, block);
+				block_write(_dir->fs,block_group_number, GROUP_DES, block);
 
 				//슈퍼블럭 수정: free_inode_count 증가
 				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.
