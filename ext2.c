@@ -886,7 +886,7 @@ int ext2_read_dir(EXT2_NODE* dir, EXT2_NODE_ADD adder, void* list)
 		if (dir->entry.inode == 2)									 // 루트 디렉터리
 			read_dir_from_sector(dir->fs, sector + 32, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가
 			// 여기서 +32는 format, mount 이후에 루트 디렉터리에 알 수 없는 파일 하나가 생기는데, 그 파일을 건너뛰기 위해 주소 크기만큼 더해준 것
-		else//???????????????????????????????????????????????????????
+		else
 			read_dir_from_sector(dir->fs, sector, adder, list); // 디렉터리 정보를 담은 sector 버퍼를 읽어 엔트리를 list에 추가
 	}
 
@@ -934,6 +934,8 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 	EXT2_NODE dotNode, dotdotNode;
 	DWORD firstCluster;
 	BYTE name[MAX_NAME_LENGTH];
+	BYTE block[MAX_BLOCK_SIZE];
+	UINT32 groupNum;
 	int result;
 	int i;
 
@@ -973,6 +975,16 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 	dotdotNode.fs = retEntry->fs;									 // 파일시스템 복사
 
 	insert_entry(retEntry->entry.inode, &dotdotNode, FILE_TYPE_DIR); // 새로운 디렉터리(retEntry)에 dotdotEntry 추가
+
+	//그룹디스크립터 수정: directories_count 변수 수정.				
+	groupNum = GET_INODE_GROUP(retEntry->entry.inode); //아이노드 속한 그룹 알아냄
+	retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
+	ZeroMemory(block, MAX_BLOCK_SIZE);
+	block_read(retEntry->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
+	printf("\n\tstart mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
+	((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count++;
+	printf("\n\tfinish mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
+	block_write(retEntry->fs, 0, GROUP_DES, block);
 
 	return EXT2_SUCCESS;
 }
@@ -1969,7 +1981,9 @@ int ext2_rmdir(EXT2_NODE* dir)
 				_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
 				ZeroMemory(block, MAX_BLOCK_SIZE);
 				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
+				printf("\n\tstart rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
+				printf("\n\tfinish rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				block_write(_dir->fs,0, GROUP_DES, block);
 
 				//슈퍼블럭 수정: free_inode_count 증가
@@ -1988,5 +2002,7 @@ int ext2_rmdir(EXT2_NODE* dir)
 		}
 	}
 	else
+	{
 		return EXT2_ERROR; //삭제하려는 디렉터리의 아이노드 정보 읽어오기 실패
+	}
 }
