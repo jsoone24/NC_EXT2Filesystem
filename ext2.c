@@ -276,6 +276,7 @@ UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	if (_fs->sb.free_block_count) //슈퍼블록에서 전체 데이터 블럭에서 빈공간을 탐색, 없으면, 에러 리턴, 있으면 진행.
 	{
 		inode_which_block_group = GET_INODE_GROUP(inode_num); //아이노드가 속해있는 블럭 그룹 계산
+		
 		if ((fs->gd.free_blocks_count > 0) && ((fs->sb.block_per_group - fs->gd.free_blocks_count) < MAX_BLOCK_SIZE * 8))	  //아이노드가 속해있는 블럭 그룹에 할당가능한 데이터 블럭이 있는지 확인.
 		{
 			//아이노드가 있는 블럭 그룹에 할당가능한 데이터블럭이 존재하는 경우 아이노드가 속한 블럭 그룹을 저장.
@@ -978,13 +979,14 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 
 	//그룹디스크립터 수정: directories_count 변수 수정.				
 	groupNum = GET_INODE_GROUP(retEntry->entry.inode); //아이노드 속한 그룹 알아냄
-	retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
+	if (groupNum == 0)
+		retEntry->fs->gd.directories_count++;	//그룹디스크립터의 디렉터리 수 증가 후 디스크에도 저장
 	ZeroMemory(block, MAX_BLOCK_SIZE);
-	block_read(retEntry->fs, 0, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
+	block_read(retEntry->fs, groupNum, GROUP_DES, block);	//처음 블럭 그룹의 디스크립터만 수정
 	printf("\n\tstart mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
 	((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count++;
 	printf("\n\tfinish mkdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[groupNum].directories_count);
-	block_write(retEntry->fs, 0, GROUP_DES, block);
+	block_write(retEntry->fs, groupNum, GROUP_DES, block);
 
 	return EXT2_SUCCESS;
 }
@@ -1232,7 +1234,6 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 	UINT32 inode_block_offset = 0;		//재귀를 쉽게 돌기 위해 하는 것
 	UINT32 inode_array_offset = 0;		//block배열에서 어떤 간접 블록 들어가야되는지 가리키는 변수
 	UINT32 offset = 0;					//간접블럭에서의 위치
-	BYTE zeroBlock[MAX_BLOCK_SIZE] = { 0, };	//0을 저장하는 블럭
 
 	if (get_inode(fs, inode_num, &inode)) //아이노드 가져오기 실패시 에러 리턴
 		return EXT2_ERROR;
@@ -1244,7 +1245,6 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 			return EXT2_ERROR;
 
 		process_meta_data_for_block_used(fs, inode_num, available_block);
-		block_write(fs, 0, available_block, zeroBlock);
 		inode.block[inode.blocks] = available_block;	//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
 		inode.blocks++;									//inode.blocks에 할당된 데이터 블럭 개수 증가.
 		set_inode_onto_inode_table(fs, inode_num, &inode);					//아이노드 테이블 업데이트
@@ -1280,7 +1280,6 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 			if (new_indirect_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
 				return EXT2_ERROR;
 
-			block_write(fs, 0, new_indirect_block, zeroBlock);
 			parent_block_num = new_indirect_block;
 			inode.block[inode_array_offset] = new_indirect_block;					//inode.block 배열에 새로 할당된 데이터 블럭 번호 저장.
 
@@ -1299,8 +1298,6 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 				available_block = get_available_data_block(fs, inode_num);	//최종적으로 할당할 블럭
 				if (available_block == EXT2_ERROR)	//할당가능한 데이터 블럭이 없을때 에러
 					return EXT2_ERROR;
-
-				block_write(fs, 0, available_block, zeroBlock);
 
 				process_meta_data_for_block_used(fs, inode_num, available_block);
 				block[inode_block_offset] = available_block;				//가장 최후의 간접 블록에 사용 표시
@@ -1324,8 +1321,6 @@ UINT32 expand_block(EXT2_FILESYSTEM* fs, UINT32 inode_num) // inode에 새로운
 				new_indirect_block = get_available_data_block(fs, inode_num);	//간접 블록 저장위한 블럭 할당받음
 				if (new_indirect_block == EXT2_ERROR)				//할당가능한 데이터 블럭이 없을때 에러
 					return EXT2_ERROR;
-
-				block_write(fs, 0, new_indirect_block, zeroBlock);
 
 				block[offset] = new_indirect_block;					//새로 할당된 블럭을 부모 블럭에 씀
 				block_write(fs, 0, parent_block_num, block);		//부모 블럭 업데이트
@@ -1744,8 +1739,16 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	}
 	fs->sb.free_block_count += freeCount;
 	fs->sb.free_inode_count++;
-
 	
+	// 해제된 아이노드 데이터블럭 0으로 초기화
+	for (int i = 0; i < EXT2_N_BLOCKS; i++)
+	{
+		inodeBuffer.block[i] = 0;
+	}
+	inodeBuffer.blocks = 0;
+	inodeBuffer.size = 0;
+	set_inode_onto_inode_table(fs, inode_num, &inodeBuffer);
+
 	return;
 }
 
@@ -1772,15 +1775,6 @@ int ext2_remove(EXT2_NODE* file)
 	
 	// 데이터블록 비트맵 수정
 	process_meta_data_for_block_free(file->fs, file->entry.inode);
-
-	// 해제된 아이노드 데이터블럭 0으로 초기화
-	for (int i = 0; i < EXT2_N_BLOCKS; i++)
-	{
-		((INODE*)inodeBuffer)->block[i] = 0;
-	}
-	((INODE*)inodeBuffer)->blocks = 0;
-	((INODE*)inodeBuffer)->size = 0;
-	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer);	//아이노드에 할당된 데이터 블록 해제해 줬으니 아이노드 정보 수정
 
 	// 아이노드 비트맵 수정
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
@@ -1983,20 +1977,20 @@ int ext2_rmdir(EXT2_NODE* dir)
 				((EXT2_DIR_ENTRY*)block)[_dir->location.offset].name[0] = DIR_ENTRY_FREE;	//디렉터리 엔트리의 이름을 DIR_ENTRY_FREE로 수정
 				block_write(_dir->fs, _dir->location.group, _dir->location.block, block);	//디렉터리 엔트리 값을 바꾸고 저장.
 
-				
+
 				//그룹디스크립터 수정: directories_count 감소, free_inode_count 증가
-				if (_dir->fs->sb.block_group_number == _dir->location.group)
+				if (block_group_number == 0)
 				{
-					_dir->fs->gd.directories_count--;			//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
+					_dir->fs->gd.directories_count--;	//그룹디스크립터의 디렉터리 수 감소 후 디스크에도 저장
 					_dir->fs->gd.free_inodes_count++;
 				}
 				ZeroMemory(block, MAX_BLOCK_SIZE);
-				block_read(_dir->fs, 0, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
+				block_read(_dir->fs, block_group_number, GROUP_DES, block);	//처음 그룹의 블럭 디스크립터 테이블만 수정
 				printf("\n\tstart rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count--;
 				((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].free_inodes_count++;
 				printf("\n\tfinish rmdir disk dir count = %d\n", ((EXT2_GROUP_DESCRIPTOR*)block)[block_group_number].directories_count);
-				block_write(_dir->fs,0, GROUP_DES, block);
+				block_write(_dir->fs,block_group_number, GROUP_DES, block);
 
 				//슈퍼블럭 수정: free_inode_count 증가
 				_dir->fs->sb.free_inode_count++;	//슈퍼블럭의 비어있는 아이노드 수 증가.
