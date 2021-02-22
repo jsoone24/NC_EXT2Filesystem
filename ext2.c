@@ -190,14 +190,11 @@ int insert_entry(UINT32 inode_num, EXT2_NODE* retEntry, int fileType)
 	BYTE		entryName[2] = { 0, };	// 엔트리 이름을 저장하는 버퍼
 	UINT32		retEntry_inodeNum;		// retEntry의 inode number가 없을 경우 새로 할당 받은 inode number
 	DWORD		dataBlockNum;			// 새로 할당 받은 데이터 블록 넘버
+
 	if (GET_INODE_FROM_NODE(retEntry) == 0) // retEntry의 inode number가 없으면
 	{
 		retEntry_inodeNum = get_free_inode_number(retEntry->fs); // 새로운 inode number 할당
 		process_meta_data_for_inode_used(retEntry, retEntry_inodeNum, fileType);
-	}
-	else // retEntry의 inode number가 있으면
-	{
-		process_meta_data_for_inode_used(retEntry, retEntry->entry.inode, fileType);
 	}
 
 	ZeroMemory(&entryNoMore, sizeof(EXT2_NODE)); // entryNoMore를 0으로 초기화
@@ -640,18 +637,6 @@ int block_write(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, uns
 		}
 	}
 	return EXT2_SUCCESS;
-}
-
-// 루트 디렉터리의 섹터단위 데이터블록을 sector 버퍼에 write
-int read_root_sector(EXT2_FILESYSTEM* fs, BYTE* sector) //루트 디렉터리에 관한 정보를 읽어옴. fs로 넘겨주면, sector에 담아줌
-{
-	UINT32 inode = 2;										 // 루트 디렉터리 inode number
-	INODE inodeBuffer;										 // 아이노드 메타데이터
-	SECTOR rootBlock;										 // 루트 디렉터리의 첫번째 데이터블록 번호
-	get_inode(fs, inode, &inodeBuffer);						 // 루트 디렉터리의 메타데이터를 inodeBuffer에 저장
-	rootBlock = get_data_block_at_inode(fs, inodeBuffer, 1); // 루트 디렉터리의 첫번째 데이터 블록 번호를 return
-
-	return data_read(fs, 0, rootBlock, sector); // 루트 디렉터리의 데이터 블록의 데이터를 sector 버퍼에 저장
 }
 
 // 루트 디렉터리의 데이터블록을 sector 버퍼에 write (eunseo)
