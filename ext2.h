@@ -14,13 +14,12 @@
 
 #define EXT2_N_BLOCKS         	15				//직,간접 블록 개수
 #define	NUMBER_OF_SECTORS		( 2097152 + 4 )	//총 섹터 수
-#define	NUMBER_OF_GROUPS		4				//블록 그룹 수
-#define	NUMBER_OF_INODES		200				//볼륨 전체의 아이노드 수
+#define	NUMBER_OF_GROUPS		64				//블록 그룹 수
+#define	NUMBER_OF_INODES		1024				//볼륨 전체의 아이노드 수
 #define	VOLUME_LABLE			"EXT2 BY NC"	//볼륨 이름
 
 #define MAX_SECTOR_SIZE			1024			//최대 섹터 크기 (Byte)
-//#define MAX_BLOCK_SIZE			4096			//최대 블록 크기 (Byte)
-#define MAX_BLOCK_SIZE			1024			//최대 블록 크기 (Byte)
+#define MAX_BLOCK_SIZE			2048			//최대 블록 크기 (Byte)
 #define MAX_NAME_LENGTH			256				//최대 이름 제한
 #define MAX_ENTRY_NAME_LENGTH	11				//최대 엔트리 이름 제한
 
@@ -49,11 +48,6 @@
 #pragma pack(push,fatstructures)
 #endif
 #pragma pack(1)
-
-
-#define cal_inode_per_block(x) (x == 0 ? 8 : (x==1 ? 16 : 32))
-
-
 
 typedef struct
 {
@@ -85,10 +79,10 @@ typedef struct
 	UINT32 start_block_of_inode_table;	//아이노드 태이블의 블록 번호. 실제 아이노드 데이터가 담겨있는 블록이 시작되는 블록의 번호이다. = 4
 	UINT32 free_blocks_count;			//블록 그룹내의 비어있는 블록 수. 데이터 저장 시 비어있는 블록이 많은 블록 그룹이 우선적으로 선택됨.
 	UINT32 free_inodes_count;			//블록 그룹내의 비어있는 아이노드 수
-	UINT16 directories_count;			//블록 그룹내에 생성된 디렉토리 수. 디렉토리에 데이터 저장시 되도록 부모 디렉터리와 같은 블록 그룹에 저장하려함. 그래서 이 디렉토리 수가 많을 수록
+	UINT32 directories_count;			//블록 그룹내에 생성된 디렉토리 수. 디렉토리에 데이터 저장시 되도록 부모 디렉터리와 같은 블록 그룹에 저장하려함. 그래서 이 디렉토리 수가 많을 수록
 										//디렉터리를 넣을 공간이 적다는 의미이기 때문에 저장시 이 개수가 적은 곳에 저장하게됨
 	BYTE padding[2];					//4바이트 단위로 정렬을 위한 패딩이다. directories_count는 2바이트로 4바이트 기준 저장 시 2바이트가 남는데 이 빈공간을 채움
-	BYTE reserved[12];					//예약된 영역. 32바이트를 맞추기 위해 12바이트를 패딩하기 위한 영역
+	BYTE reserved[6];					//예약된 영역. 32바이트를 맞추기 위해 12바이트를 패딩하기 위한 영역
 } EXT2_GROUP_DESCRIPTOR;				//모든 블록 그룹에 대한 디스크립터. 각 블록 그룹마다 저장되어있다. 하나의 디스크립터는 총 32바이트
 
 typedef struct
@@ -146,16 +140,16 @@ typedef struct
 
 typedef struct
 {
-	EXT2_FILESYSTEM * fs;				//위의 구조체
+	EXT2_FILESYSTEM * fs;				//디렉터리의 sb와 gd정보를 가지고 있음
 	EXT2_DIR_ENTRY entry;				//디렉터리 엔트리의 최상단 아니면 최하단을 가리키는것으로 예상
-	EXT2_DIR_ENTRY_LOCATION location;	//위의 구조체
+	EXT2_DIR_ENTRY_LOCATION location;	//entry의 위치를 나타냄
 } EXT2_NODE;							//블록 그룹 하나를 관리하기 위한 객체인 것 같다. 이게 블록 그룹 개수 만큼 있을 것 같다. 배열이든 연결리스트로든
 
-#define SUPER_BLOCK 0					//슈퍼블럭의 블럭 위치. 항상 0번째임
-#define GROUP_DES  1					//그룹 디스크립터는 슈퍼블록 뒤에 항상 위치 그래서 1번
-#define BLOCK_BITMAP 2					//블록 비트맵은 그룹 디스크립터 바로 뒤에 위치 그래서 2번
-#define INODE_BITMAP 3					//아이노드 비트맵은 블록 비트맵 바로 뒤에 위치 그래서 3번
-#define INODE_TABLE(x) (4 + x)			//아이노드 테이블은 여러 블록에 있을 수 있기 때문에 4~ 번
+#define SUPER_BLOCK		0					//슈퍼블럭의 블럭 위치. 항상 0번째임
+#define GROUP_DES		1					//그룹 디스크립터는 슈퍼블록 뒤에 항상 위치 그래서 1번
+#define BLOCK_BITMAP	2					//블록 비트맵은 그룹 디스크립터 바로 뒤에 위치 그래서 2번
+#define INODE_BITMAP	3					//아이노드 비트맵은 블록 비트맵 바로 뒤에 위치 그래서 3번
+#define INODE_TABLE(x) (4 + x)				//아이노드 테이블은 여러 블록에 있을 수 있기 때문에 4~ 번
 
 #define FILE_TYPE_FIFO               0x1000	//명명된 파이프?
 #define FILE_TYPE_CHARACTERDEVICE    0x2000	//문자 장치
