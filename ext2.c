@@ -143,9 +143,11 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 		((EXT2_GROUP_DESCRIPTOR*)sector)[groupNum].free_inodes_count--;
 		block_write(retEntry->fs, i, GROUP_DES, sector);
 	}
-
+	printf("inode_num : %d\n", inode_num);
+	printf("groupNum : %d\n", groupNum);
 	retEntry->fs->sb.free_inode_count--; // fs의 sb.free_inode_count를 1 감소
-	retEntry->fs->gd.free_inodes_count--; // fs의 gd.free_blocks_count를 1 감소
+	if(retEntry->fs->sb.block_group_number == groupNum)
+		retEntry->fs->gd.free_inodes_count--; // fs의 gd.free_blocks_count를 1 감소
 
 	// Update inode bitmap
 	ZeroMemory(sector, MAX_BLOCK_SIZE);
@@ -802,24 +804,18 @@ UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs) //비어있는 아이노드 �
 	//먼저 슈퍼블럭값을 통해 볼륨 전체에 사용가능한 아이노드 저장공간이 있는지 확인.
 	if (_fs->sb.free_inode_count) //볼륨 내에 할당 가능한 아이노드 공간이 있는 경우.
 	{
-		if (_fs->gd.free_inodes_count) //같은 그룹내에 아이노드를 할당할 공간이 있는 경우.
+		ZeroMemory(block, MAX_BLOCK_SIZE);
+		block_read(fs, 0, GROUP_DES, block);
+		gdp = block;
+		for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
 		{
-			block_group_number = _fs->sb.block_group_number;
+			if (gdp->free_inodes_count > 0)
+				break;
+			gdp++;
 		}
-		else //같은 그룹내에 아이노드를 할당할 공간이 없는 경우.
-		{
-			ZeroMemory(block, MAX_BLOCK_SIZE);
-			block_read(fs, 0, GROUP_DES, block);
-			gdp = block;
-			for (i = 0; i < NUMBER_OF_GROUPS; i++)	//사용가능한 아이노드가 없는 경우 값이 0이기 때문에, 계속 돌게된다. 빈 공간이 있으면 나옴. 처음 블럭그룹부터 탐색
-			{
-				if (gdp->free_inodes_count > 0)
-					break;
-				gdp++;
-			}
-			assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 아이노드가 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
-			block_group_number = i;
-		}
+		assert(i != NUMBER_OF_GROUPS);	//끝까지 돌아버렸다는건 사용가능한 아이노드가 없는데 뭔가 잘못됨 정상적이라면 i에 아이노드 빈공간이 있는 그룹 번호가 리턴됨
+		block_group_number = i;
+
 		//가장 빨리 비어있는 아이노드 빈자리를 아이노드 비트맵을 통해 구한다.
 		ZeroMemory(block, MAX_BLOCK_SIZE);
 		block_read(_fs, block_group_number, INODE_BITMAP, block);	//block_group_number 에 비어있는 그룹 번호가 담김 그 그룹의 아이노드 비트맵의 블럭 번호를 읽어옴
