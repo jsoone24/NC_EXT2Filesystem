@@ -105,7 +105,6 @@ int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, cons
 
 UINT32 get_free_inode_number(EXT2_FILESYSTEM* fs);
 
-// (eunseo)
 void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int fileType)
 {
 	/*
@@ -143,14 +142,10 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 		((EXT2_GROUP_DESCRIPTOR*)sector)[groupNum].free_inodes_count--;
 		block_write(retEntry->fs, i, GROUP_DES, sector);
 	}
-	printf("inode_num : %d\n", inode_num);
-	printf("groupNum : %d\n", groupNum);
 	retEntry->fs->sb.free_inode_count--; // fs의 sb.free_inode_count를 1 감소
 	if(0 == groupNum)
 		retEntry->fs->gd.free_inodes_count--; // fs의 gd.free_blocks_count를 1 감소
 
-	if (groupNum == 1)
-		printf("%d\n", groupNum);
 	// Update inode bitmap
 	ZeroMemory(sector, MAX_BLOCK_SIZE);
 	block_read(retEntry->fs, groupNum, retEntry->fs->gd.start_block_of_inode_bitmap, sector); // 아이노드 비트맵 blockBuffer 버퍼에 저장
@@ -162,7 +157,7 @@ void process_meta_data_for_inode_used(EXT2_NODE* retEntry, UINT32 inode_num, int
 	return;
 }
 
-// 디스크의 location에 value를 기록 (eunseo)
+// 디스크의 location에 value를 기록
 int set_entry(EXT2_FILESYSTEM* fs, const EXT2_DIR_ENTRY_LOCATION* location, const EXT2_DIR_ENTRY* value)
 {
 	/* value의 크기가 섹터만큼 크지 않더라도 바로 기록하면 나머지 정보들이 원하지 않는 값으로 바뀔 수 있기 때문에
@@ -180,7 +175,9 @@ int set_entry(EXT2_FILESYSTEM* fs, const EXT2_DIR_ENTRY_LOCATION* location, cons
 	return EXT2_ERROR;
 }
 
-// inode_num의 데이터 블록에 새로운 엔트리(retEntry) 추가. 성공여부 return (eunseo)
+UINT32 get_available_data_block(EXT2_FILESYSTEM* fs, UINT32 inode_num);
+
+// inode_num의 데이터 블록에 새로운 엔트리(retEntry) 추가. 성공여부 return
 int insert_entry(UINT32 inode_num, EXT2_NODE* retEntry, int fileType)
 {
 	/*
@@ -194,11 +191,11 @@ int insert_entry(UINT32 inode_num, EXT2_NODE* retEntry, int fileType)
 	BYTE		entryName[2] = { 0, };	// 엔트리 이름을 저장하는 버퍼
 	UINT32		retEntry_inodeNum;		// retEntry의 inode number가 없을 경우 새로 할당 받은 inode number
 	DWORD		dataBlockNum;			// 새로 할당 받은 데이터 블록 넘버
+	UINT32		i;
 
 	if (GET_INODE_FROM_NODE(retEntry) == 0) // retEntry의 inode number가 없으면
 	{
 		retEntry_inodeNum = get_free_inode_number(retEntry->fs); // 새로운 inode number 할당
-		printf("\n\tretEntry_inodeNum = %d\n", retEntry_inodeNum);
 		process_meta_data_for_inode_used(retEntry, retEntry_inodeNum, fileType);
 	}
 
@@ -223,13 +220,11 @@ int insert_entry(UINT32 inode_num, EXT2_NODE* retEntry, int fileType)
 			return EXT2_ERROR;
 		}
 
-
 		set_entry(retEntry->fs, &entryNoMore.location, &retEntry->entry); // 마지막 엔트리를 찾았다면 이 위치에 새 엔트리 기록
 		retEntry->location = entryNoMore.location; // 위치정보 기록
-		entryNoMore.location.offset++;			   // 마지막 엔트리라고 저장할 위치로 이동
 
 		// 블록에 모든 엔트리가 찼다면
-		if (entryNoMore.location.offset == MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY))
+		if (entryNoMore.location.offset == (MAX_BLOCK_SIZE / sizeof(EXT2_DIR_ENTRY) - 1))
 		{
 			if (inode_num == 2) // 루트 디렉터리이면
 			{
@@ -241,13 +236,23 @@ int insert_entry(UINT32 inode_num, EXT2_NODE* retEntry, int fileType)
 				return EXT2_ERROR;
 			}
 
-			entryNoMore.location.block++; // 그 다음 블록에 저장
-			entryNoMore.location.offset = 0;
 			if (expand_block(retEntry->fs, inode_num) == EXT2_ERROR) // 새로운 데이터 블록 할당
 				return EXT2_ERROR;
-			// process_meta_data_for_block_used(retEntry->fs, retEntry->entry.inode, 0);
+
+			INODE	inodeBuffer;
+			get_inode(retEntry->fs, inode_num, &inodeBuffer);
+			for (i = 0; i < inodeBuffer.blocks; i++) // 새로 할당된 데이터 블록 번호 탐색
+			{
+				if (get_data_block_at_inode(&retEntry->fs, inodeBuffer, (i + 1)) == entryNoMore.location.block)
+					break;
+			}
+
+			entryNoMore.location.group = GET_INODE_GROUP(inode_num); // 마지막 엔트리의 그룹 위치
+			entryNoMore.location.block = get_data_block_at_inode(&retEntry->fs, inodeBuffer, (i + 1)); // 마지막 엔트리의 블록 위치
+			entryNoMore.location.offset = -1; // 마지막 엔트리의 오프셋 위치
 		}
 
+		entryNoMore.location.offset++;			   // 마지막 엔트리라고 저장할 위치로 이동
 		set_entry(retEntry->fs, &entryNoMore.location, &entryNoMore.entry); // 마지막이라고 기록
 	}
 
@@ -454,7 +459,7 @@ int find_entry_at_block(const BYTE* sector, const BYTE* formattedName, UINT32 be
 	return EXT2_ERROR;	//여기까지 오는건 다 돌았는데 못 찾는 경우이므로 EXT2_ERROR 리턴
 }
 
-// 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장 (eunseo)
+// 루트 디렉터리 영역에서 formattedName의 엔트리 검색해서 EXT2_NODE* ret에 저장
 int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EXT2_NODE* ret)
 {
 	SECTOR	rootBlock;						// 루트 디렉터리의 첫번째 데이터블록 번호
@@ -495,7 +500,7 @@ int find_entry_on_root(EXT2_FILESYSTEM* fs, INODE inode, char* formattedName, EX
 	return EXT2_SUCCESS;
 }
 
-// 데이터 영역에서 formattedName의 엔트리 검색 (eunseo)
+// 데이터 영역에서 formattedName의 엔트리 검색
 int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedName, EXT2_NODE* ret)
 {
 	BYTE	blockBuffer[MAX_BLOCK_SIZE];	// 엔트리를 저장하는 섹터
@@ -530,18 +535,11 @@ int find_entry_on_data(EXT2_FILESYSTEM* fs, INODE first, const BYTE* formattedNa
 			{
 				memcpy(&ret->entry, &entry[number], sizeof(EXT2_DIR_ENTRY)); // 엔트리의 내용을 복사
 
-				ret->location.group = 0;
-				ret->location.block = blockNum;
+				ret->location.group = blockNum / fs->sb.block_per_group;
+				ret->location.block = blockNum % fs->sb.block_per_group;
 				ret->location.offset = number;
 
 				ret->fs = fs;
-				/*
-				block_read(fs, 0, GROUP_DES, blockBuffer);
-				memcpy(&(ret->fs->gd), &(((EXT2_GROUP_DESCRIPTOR*)blockBuffer)[GET_INODE_GROUP(entry[number].inode)]), sizeof(EXT2_GROUP_DESCRIPTOR));
-				block_read(fs, 0, SUPER_BLOCK, blockBuffer);
-				((EXT2_SUPER_BLOCK*)blockBuffer)->block_group_number = GET_INODE_GROUP(entry[number].inode);
-				memcpy(&(ret->fs->sb), blockBuffer, sizeof(EXT2_SUPER_BLOCK));
-				*/
 			}
 
 			return EXT2_SUCCESS;
@@ -645,7 +643,7 @@ int block_write(EXT2_FILESYSTEM* fs, unsigned int group, unsigned int block, uns
 	return EXT2_SUCCESS;
 }
 
-// 루트 디렉터리의 데이터블록을 sector 버퍼에 write (eunseo)
+// 루트 디렉터리의 데이터블록을 sector 버퍼에 write
 int read_root_block(EXT2_FILESYSTEM* fs, BYTE* sector) //루트 디렉터리에 관한 정보를 읽어옴. fs로 넘겨주면, sector에 담아줌
 {
 	UINT32 inode = 2;										 // 루트 디렉터리 inode number
@@ -960,7 +958,6 @@ int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEnt
 		return EXT2_ERROR;
 
 	expand_block(parent->fs, retEntry->entry.inode); // 새로운 엔트리(retEntry)의 데이터블록 할당
-	// process_meta_data_for_block_used(parent->fs, retEntry->entry.inode, 0); // 일단 넣음. 원래는 없었음
 
 	/* dotEntry */
 	ZeroMemory(&dotNode, sizeof(EXT2_NODE));
@@ -1457,7 +1454,7 @@ int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK* sb) //루트 디렉터�
 	return EXT2_SUCCESS;
 }
 
-// block_num번 블록이 할당된 것에 대한 메타데이터 처리 (eunseo)
+// block_num번 블록이 할당된 것에 대한 메타데이터 처리
 void process_meta_data_for_block_used(EXT2_FILESYSTEM* fs, UINT32 inode_num, UINT32 block_num)
 {
 	// EXT2_SUPER_BLOCK *sb;
@@ -1758,7 +1755,7 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 
 
 
-// Remove file (eunseo)
+// Remove file
 int ext2_remove(EXT2_NODE* file)
 {
 	BYTE inodeBuffer[sizeof(INODE)];
@@ -1803,7 +1800,7 @@ int ext2_remove(EXT2_NODE* file)
 	return EXT2_SUCCESS;
 }
 
-// Read file (eunseo) - offset부터 length만큼 읽어서 buffer에 저장. length = 1024, buffer[1025] = {0,}으로 호출됨
+// Read file - offset부터 length만큼 읽어서 buffer에 저장
 int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char* buffer)
 {
 	BYTE	sector[MAX_BLOCK_SIZE];					// 디스크에서 섹터 단위로 읽어오기 위한 버퍼
