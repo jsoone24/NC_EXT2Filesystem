@@ -1742,8 +1742,16 @@ void process_meta_data_for_block_free(EXT2_FILESYSTEM* fs, UINT32 inode_num)
 	}
 	fs->sb.free_block_count += freeCount;
 	fs->sb.free_inode_count++;
-
 	
+	// 해제된 아이노드 데이터블럭 0으로 초기화
+	for (int i = 0; i < EXT2_N_BLOCKS; i++)
+	{
+		inodeBuffer.block[i] = 0;
+	}
+	inodeBuffer.blocks = 0;
+	inodeBuffer.size = 0;
+	set_inode_onto_inode_table(fs, inode_num, &inodeBuffer);
+
 	return;
 }
 
@@ -1770,15 +1778,6 @@ int ext2_remove(EXT2_NODE* file)
 	
 	// 데이터블록 비트맵 수정
 	process_meta_data_for_block_free(file->fs, file->entry.inode);
-
-	// 해제된 아이노드 데이터블럭 0으로 초기화
-	for (int i = 0; i < EXT2_N_BLOCKS; i++)
-	{
-		((INODE*)inodeBuffer)->block[i] = 0;
-	}
-	((INODE*)inodeBuffer)->blocks = 0;
-	((INODE*)inodeBuffer)->size = 0;
-	set_inode_onto_inode_table(file->fs, file->entry.inode, inodeBuffer);	//아이노드에 할당된 데이터 블록 해제해 줬으니 아이노드 정보 수정
 
 	// 아이노드 비트맵 수정
 	ZeroMemory(blockBuffer, MAX_BLOCK_SIZE);
