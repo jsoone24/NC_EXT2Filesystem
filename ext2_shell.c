@@ -152,6 +152,7 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 {
 	EXT2_FILESYSTEM* fs;
 	EXT2_NODE ext2_entry;
+	UINT32 bytesPerBlock;
 	int result;
 
 	*fsOprs = g_fsOprs; // g_fsOprs구조체에 EXT2오퍼레이션함수 등록
@@ -168,7 +169,19 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 	{
 		printf("number of groups         : %d\n", NUMBER_OF_GROUPS);
 		printf("blocks per group         : %d\n", fs->sb.block_per_group);
-		printf("bytes per block          : %d\n", disk->bytesPerSector);
+		switch (fs->sb.log_block_size)
+		{
+		case 0:
+			bytesPerBlock = 1024;
+			break;
+		case 1:
+			bytesPerBlock = 2048;
+			break;
+		case 2:
+			bytesPerBlock = 4096;
+			break;
+		}
+		printf("bytes per block          : %d\n", bytesPerBlock);
 		printf("free block count	 : %d\n", fs->sb.free_block_count);
 		printf("free inode count	 : %d\n", fs->sb.free_inode_count);
 		printf("first non reserved inode : %d\n", fs->sb.first_non_reserved_inode);
@@ -184,7 +197,6 @@ int fs_mount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* ro
 }
 
 // (구현X) mount 해제
-
 void fs_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs)
 {
 	if( fsOprs && fsOprs->pdata ) // 함수 오퍼레이션이 지정되 있고, pdata가 존재한다면 - 마운트 되어 있다면 
@@ -334,7 +346,7 @@ int fs_lookup(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환
 
-	if (result = ext2_lookup(&EXT2Parent, name, &EXT2Entry))return result; // (ext2.c) 해당 이름을 가지는 엔트리의 위치를 찾아서 EXT2Entry에 저장
+	if (result = ext2_lookup(&EXT2Parent, name, &EXT2Entry)) return result; // (ext2.c) 해당 이름을 가지는 엔트리의 위치를 찾아서 EXT2Entry에 저장
 
 	ext2_entry_to_shell_entry(EXT2Parent.fs, &EXT2Entry, entry); // SHELL_ENTRY로 변환
 
@@ -425,8 +437,6 @@ int fs_mkdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENT
 
 	return result;
 }
-
-
 
 int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int * total, unsigned int * used)
 {

@@ -54,7 +54,9 @@ int disksim_read( DISK_OPERATIONS* this, SECTOR sector, void* data )
 	char* disk = ( ( DISK_MEMORY* )this->pdata )->address;  // 포인터 변수 disk에 DISK_OPERATIONS 구조체의 pdata 주소 대입
 
 	if( sector < 0 || sector >= this->numberOfSectors )		// 인자로 받은 sector가 0보다 작거나 디스크 구조체의 섹터 수보다 많으면 에러처리
+	{
 		return -1;
+	}
 
 	memcpy( data, &disk[sector * this->bytesPerSector], this->bytesPerSector ); 
 	// (입력받은 섹터번호*섹터당 바이트 수)한 주소로부터 한 섹터만큼의 내용 data에 복사
@@ -64,11 +66,10 @@ int disksim_read( DISK_OPERATIONS* this, SECTOR sector, void* data )
 int disksim_write( DISK_OPERATIONS* this, SECTOR sector, const void* data )
 {
 	char* disk = ( ( DISK_MEMORY* )this->pdata )->address;	// 포인터 변수 disk에 DISK_OPERATIONS 구조체의 pdata 주소 대입
-
-	if( sector < 0 || sector >= this->numberOfSectors )	// 인자로 받은 sector가 0보다 작거나 디스크 구조체의 섹터 수보다 많으면 에러처리
+	if (sector < 0 || sector >= this->numberOfSectors)		// 인자로 받은 sector가 0보다 작거나 디스크 구조체의 섹터 수보다 많으면 에러처리
 		return -1;
-
-	memcpy( &disk[sector * this->bytesPerSector], data, this->bytesPerSector ); 
+	
+	memcpy( &disk[sector * this->bytesPerSector], data, this->bytesPerSector );
 	// (입력받은 섹터번호*섹터당 바이트 수)한 주소로부터 한 섹터만큼에 data 대입
 	return 0;
 }
