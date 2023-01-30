@@ -1,4 +1,4 @@
-# EXT2_FILE_SYSTEM
+# EXT2_FILESYSTEM
 
 ## Specification
 
