@@ -252,11 +252,13 @@ throughout.
 
 All four addressed in one rewrite.
 
-### Mojibaked Korean prompt
+### Mojibaked prompt placeholder
 [`shell.c`](shell.c) — `do_shell`
 
 The prompt printed `ÇÐ¹ø :` because the original CP949 bytes for `학번`
-had been re-encoded as Latin-1 then UTF-8. Restored proper UTF-8.
+("student ID") had been re-encoded as Latin-1 then UTF-8. The original
+text was a placeholder a student was supposed to replace with their
+actual ID. Substituted a meaningful identifier (`nc22-ext2 :`).
 
 ---
 
