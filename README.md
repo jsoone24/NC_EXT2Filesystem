@@ -60,7 +60,7 @@ the exact flag set.
 ## Shell Commands
 
 After launching `./shell`, you must `format` then `mount` before any other
-operation. The prompt shows `학번 : [/<currentDir>]#`.
+operation. The prompt shows `nc22-ext2 : [/<currentDir>]#`.
 
 ### Lifecycle
 | Command            | Effect                                           |
@@ -181,5 +181,5 @@ re-shaped it into a build-clean, runnable, modern-toolchain version. See
 - Added input validation to `fill`, `dumpfileinode`,
   `dumpdatablockbyname`, `dumpdatablockbynum`, and `cd` so malformed
   invocations no longer segfault.
-- Restored proper UTF-8 Korean for the shell prompt (was mojibaked from
-  CP949 → Latin-1 → UTF-8).
+- Replaced the original mojibaked Korean prompt placeholder (`ÇÐ¹ø :`)
+  with a meaningful identifier (`nc22-ext2 :`).

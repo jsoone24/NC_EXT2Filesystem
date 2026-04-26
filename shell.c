@@ -140,7 +140,7 @@ void do_shell(void) // 명령어 입력받음
 
 	while (-1)
 	{
-		printf("학번 : [/%s]# ", g_currentDir.name);
+		printf("nc22-ext2 : [/%s]# ", g_currentDir.name);
 
 		fgets(buf, 1000, stdin); // 표준 입력을 받아 최대 1000 byte만큼 버퍼에 입력값 저장
 		argc = seperate_string(buf, argv); // 인자의 개수 저장
