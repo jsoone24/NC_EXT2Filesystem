@@ -26,7 +26,7 @@ int disksim_init( SECTOR numberOfSectors, unsigned int bytesPerSector, DISK_OPER
 	}
 
 	( ( DISK_MEMORY* )disk->pdata )->address = ( char* )malloc( bytesPerSector * numberOfSectors ); // 해당 주소에 (섹터수*섹터당 바이트)만큼 메모리 할당
-	if( disk->pdata == NULL )	// 할당 실패시
+	if( ( ( DISK_MEMORY* )disk->pdata )->address == NULL )	// 할당 실패시 - 두번째 할당의 결과를 정확히 검사
 	{
 		disksim_uninit( disk );	// // 해당 DISK_OPERATIONS의 pdata 영역 메모리 할당 해제(54 참조)
 		return -1;
@@ -45,7 +45,13 @@ void disksim_uninit( DISK_OPERATIONS* this ) // pdata메모리 할당 해제
 	if( this )
 	{
 		if( this->pdata )
+		{
+			DISK_MEMORY* mem = ( DISK_MEMORY* )this->pdata;
+			if( mem->address )				// 디스크 버퍼(섹터수*섹터당 바이트)부터 해제
+				free( mem->address );
 			free( this->pdata ); // 인자로 받은 this의 pdata가 존재할 경우 할당 해제
+			this->pdata = NULL;
+		}
 	}
 }
 

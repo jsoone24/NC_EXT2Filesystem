@@ -20,6 +20,8 @@ int add_entry_list(SHELL_ENTRY_LIST* list, SHELL_ENTRY* entry)	//쉘 상에서 �
 	SHELL_ENTRY_LIST_ITEM*	newItem;	//엔트리 리스트 아이템 포인터 생성
 
 	newItem = (SHELL_ENTRY_LIST_ITEM*)malloc(sizeof(SHELL_ENTRY_LIST_ITEM));// 새 공간 할당
+	if (newItem == NULL)		// 할당 실패시 즉시 에러 - 이전엔 NULL deref로 segfault
+		return -1;
 	newItem->entry = *entry;	//가장 최근의 엔트리를 새로만든 엔트리로 설정
 	newItem->next = NULL;		//다음 포인터 없다고 설정
 

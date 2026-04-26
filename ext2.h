@@ -158,6 +158,9 @@ typedef struct
 #define FILE_TYPE_FILE				 0x8000	//이건 뭘까? 332페이지에서는 정규파일이라고 함
 //332페이지 참고 아이노드의 File mode의 하위 13~16비트에 저장됨.
 
+// EXT2_NODE_ADD 콜백 타입 - 아래 함수 선언들에서 사용되므로 먼저 정의함
+typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*, void*, EXT2_NODE*);
+
 int meta_read(EXT2_FILESYSTEM *, SECTOR group, SECTOR block, BYTE* sector);			//data_read랑 똑같이 생겼는데 뭘까? 이건 디스크에서 데이터를 읽어주는 함수이다.
 int meta_write(EXT2_FILESYSTEM * fs, SECTOR group, SECTOR block, BYTE* sector);		//data_write랑 똑같이 생김. 디스크에 데이터를 쓰는 함수이다.
 int data_read(EXT2_FILESYSTEM *, SECTOR group, SECTOR block, BYTE* sector);			//위랑 내용 같음
@@ -170,6 +173,17 @@ int ext2_lookup(EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry);	
 int ext2_df(EXT2_FILESYSTEM *fs, unsigned int * total, unsigned int * used);
 int ext2_rmdir(EXT2_NODE* dir);
 
+// ext2.c에서 정의되어 ext2_shell.c에서 호출되는 함수들 - 묵시적 선언 경고/에러 방지
+int ext2_read_superblock(EXT2_FILESYSTEM* fs, EXT2_NODE* root);
+int ext2_read_dir(EXT2_NODE* dir, EXT2_NODE_ADD adder, void* list);
+int ext2_mkdir(const EXT2_NODE* parent, const char* entryName, EXT2_NODE* retEntry);
+int ext2_remove(EXT2_NODE* file);
+int ext2_read(EXT2_NODE* file, unsigned long offset, unsigned long length, char* buffer);
+int ext2_write(EXT2_NODE* file, unsigned long offset, unsigned long length, const char* buffer);
+void ext2_umount(EXT2_FILESYSTEM* fs);
+int get_inode(EXT2_FILESYSTEM* fs, const UINT32 inode, INODE* inodeBuffer);
+char* my_strncpy(char* dest, const char* src, int length);
+
 //int ext2_read(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* entry, unsigned long offset, unsigned long length, char* buffer);
 //ext2_shell.c에서 사용 위해 헤더에 추가 필요 예상 fs_read에서 호출 예정. 함수 선언부, 인자 받는 부분 수정 필요시 수정해야 될 수도. 일단 fs_read와 맞춰놓음
 //void ext2_umount(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs);
@@ -180,8 +194,6 @@ int fill_super_block(EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytes
 int fill_descriptor_block(EXT2_GROUP_DESCRIPTOR * gd, EXT2_SUPER_BLOCK * sb, SECTOR numberOfSectors, UINT32 bytesPerSector);	//메모리 어떤 곳에 파일디스크립터 내용을 채워넣는 함수
 int create_root(DISK_OPERATIONS* disk, EXT2_SUPER_BLOCK * sb);						//루트 디렉터리를 생성하는 함수
 void process_meta_data_for_block_used(EXT2_FILESYSTEM * fs, UINT32 inode_num, UINT32 select);		//
-
-typedef int(*EXT2_NODE_ADD)(EXT2_FILESYSTEM*, void*, EXT2_NODE*);
 //디렉토리 엔트리정보를 읽어 리스트로 계속 뒤에 추가하는 함수. EXT2_NODE 내부의 fs, entry필드에 연결해야하는 디렉터리 엔트리에 대한 정보가 담겨서 들어온다.
 //첫번째 인자는 왜 필요한 걸까.
 #endif

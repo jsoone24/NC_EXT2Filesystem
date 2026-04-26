@@ -140,7 +140,7 @@ void do_shell(void) // 명령어 입력받음
 
 	while (-1)
 	{
-		printf("ÇÐ¹ø : [/%s]# ", g_currentDir.name);
+		printf("학번 : [/%s]# ", g_currentDir.name);
 
 		fgets(buf, 1000, stdin); // 표준 입력을 받아 최대 1000 byte만큼 버퍼에 입력값 저장
 		argc = seperate_string(buf, argv); // 인자의 개수 저장
@@ -230,18 +230,21 @@ int shell_cmd_dumpinodetable(int argc, char * argv[]) // inode table 섹터단�
 int shell_cmd_dumpdatablockbyname(int argc, char * argv[]) // 해당 이름을 가진 data block을 섹터단위로 출력
 {
 	SHELL_ENTRY entry;
+	if (argc < 2) { printf("usage: %s [name]\n", argv[0]); return -1; }	// argv[1] 미검증시 NULL deref → segfault
 	printf_by_sel(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1], 6, 0);
 	return 0;
 }
 int shell_cmd_dumpfileinode(int argc, char * argv[]) // 해당 이름을 가진 파일의 inode 출력
 {
 	SHELL_ENTRY entry;
+	if (argc < 2) { printf("usage: %s [name]\n", argv[0]); return -1; }
 	printf_by_sel(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1], 7, 0);
 	return 0;
 }
 int shell_cmd_dumpdatablockbynum(int argc, char * argv[]) // 해당 num을 가진 data block을 섹터단위로 출력
 {
 	SHELL_ENTRY entry;
+	if (argc < 2) { printf("usage: %s [block-index]\n", argv[0]); return -1; }	// atoi(NULL) 은 UB
 	printf_by_sel(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1], 8, atoi(argv[1]));
 	return 0;
 }
@@ -286,8 +289,13 @@ int shell_cmd_cd(int argc, char* argv[]) // 현재 디렉터리 이동
 				printf("%s is not a directory\n", argv[1]); // 파일이면
 				return -1;
 			}
+			// path[256] 의 OOB 쓰기 방지. 256단계 깊이는 비현실적이지만 정적 배열이므로 명시적 가드.
+			if (pathTop + 1 >= (int)(sizeof(path) / sizeof(path[0])))
+			{
+				printf("cd: max nesting depth reached\n");
+				return -1;
+			}
 			path[++pathTop] = newEntry; // 디렉터리이면 해당 엔트리 주소 저장
-
 		}
 	}
 
@@ -299,7 +307,7 @@ int shell_cmd_cd(int argc, char* argv[]) // 현재 디렉터리 이동
 int shell_cmd_exit(int argc, char* argv[]) // 종료
 {
 	disksim_uninit(&g_disk); // 디스크의 데이터를 삭제하고 (disksim.c)
-	_exit(0); // 정상종료
+	exit(0); // 정상종료 - _exit는 stdout 버퍼를 flush 하지 않아 파이프 환경에서 출력이 사라지는 문제가 있음
 
 	return 0;
 }
@@ -372,48 +380,62 @@ int shell_cmd_fill(int argc, char* argv[]) // 파일의 크기를 지정해 해�
 	char*		tmp;
 	int			size;
 	int			result;
-	char opt[3] = { 0, };
+	char opt[8] = { 0, };	// 충분히 큰 버퍼 (이전엔 3바이트라 사용자가 -ca 같은 입력시 오버플로우 위험)
 	const char CREATE[3] = "-c";
 	const char APPEND[3] = "-a";
 	unsigned long offset;
+	int matched_option = 0;
 
 	if (argc != 4) // 인자의 개수가 적절하지 않으면
 	{
-		printf("usage : fill [file] [size] [option]\n");
+		printf("usage : fill [file] [size] [-c|-a]\n");
 		return 0;
 	}
 
-	sscanf(argv[2], "%d", &size); // argv[2]로부터 데이터를 읽어 size에 저장
-	sscanf(argv[3], "%s", opt); // argv[3]로부터 데이터를 읽어 opt에 저장
-	
+	if (sscanf(argv[2], "%d", &size) != 1 || size < 0)	// 음수 크기 거절: 이후 buffer + size 포인터 산술이 underflow 됨
+	{
+		printf("size must be a non-negative integer\n");
+		return -1;
+	}
+	sscanf(argv[3], "%7s", opt); // 7글자 + NUL. opt 배열 크기에 맞게 폭 제한.
+
 	if (strcmp(opt, CREATE) == 0) // CREATE 옵션은 새로운 파일 생성
 	{
-		// 파일명을 EXT2_ENTRY 형식에 맞게 수정한 뒤 해당 이름을 가지는 엔트리가 존재하지 않으면 부모 디렉터리에 추가해줌
-		result = g_fsOprs.fileOprs->create(&g_disk, &g_fsOprs, &g_currentDir, argv[1], &entry); // (ext2_shell.c -> fs_create)
-		if (result) // 생성 실패 시
+		result = g_fsOprs.fileOprs->create(&g_disk, &g_fsOprs, &g_currentDir, argv[1], &entry);
+		if (result)
 		{
 			printf("create failed\n");
 			return -1;
 		}
 		offset = 0;
+		matched_option = 1;
 	}
-	if (strcmp(opt, APPEND) == 0) { // APPEND 옵션은 기존 파일에 내용 추가
-		g_fsOprs.lookup(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1]); // 해당 이름을 가진 엔트리가 있는지 검색 (ext2_shell.c -> fs_lookup)
-		offset = entry.size; // offset을 엔트리 크기로 지정
+	else if (strcmp(opt, APPEND) == 0) { // APPEND 옵션은 기존 파일에 내용 추가
+		// lookup 결과를 확인: 파일이 없으면 entry가 미초기화 상태라 그대로 write 하면 임의 메모리에 쓰게 됨
+		if (g_fsOprs.lookup(&g_disk, &g_fsOprs, &g_currentDir, &entry, argv[1]))
+		{
+			printf("file not found\n");
+			return -1;
+		}
+		offset = entry.size;
+		matched_option = 1;
 	}
-	
-	buffer = (char*)malloc(size + 13); // 파일에 내용을 쓰기 위한 버퍼
-	tmp = buffer; // 버퍼의 시작주소
-	while (tmp < buffer + size) // 버퍼의 크기만큼 해당 문자열을 채움
+
+	if (!matched_option) {
+		printf("unknown option '%s' (expected -c or -a)\n", opt);
+		return -1;
+	}
+
+	buffer = (char*)malloc(size + 13); // 파일에 내용을 쓰기 위한 버퍼 (+13 은 마지막 패턴이 size 를 살짝 넘어 안전하게 복사되도록 한 패딩)
+	tmp = buffer;
+	while (tmp < buffer + size)
 	{
 		memcpy(tmp, "Can you see? ", 13);
 		tmp += 13;
 	}
-	// 생성한 파일의 크기만큼 버퍼의 내용으로 채움
-	g_fsOprs.fileOprs->write(&g_disk, &g_fsOprs, &g_currentDir, &entry, offset, size, buffer); // (ext2_shell.c -> fs_write)
-	
-	free(buffer); // 버퍼 해제
+	g_fsOprs.fileOprs->write(&g_disk, &g_fsOprs, &g_currentDir, &entry, offset, size, buffer);
 
+	free(buffer);
 	return 0;
 }
 
@@ -585,6 +607,7 @@ int shell_cmd_cat(int argc, char* argv[]) // 파일의 내용을 출력
 		memset(buf, 0, sizeof(buf)); // 새로운 데이터를 읽기 위해 0으로 초기화
 	}
 	printf("\n");
+	return 0;
 }
 
 int shell_cmd_ls(int argc, char* argv[]) // 현재 디렉터리의 엔트리 목록 출력

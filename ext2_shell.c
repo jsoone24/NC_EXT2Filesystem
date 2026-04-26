@@ -1,47 +1,49 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <memory.h>
+#include <ctype.h>		// toupper 사용
+#include <stdint.h>		// uintptr_t (포인터를 절단 없이 정수로 다루기 위함)
 #include "ext2_shell.h"
 typedef struct {
 	char * address;
 }DISK_MEMORY;
 void printFromP2P(char * start, char * end);
 
-int fs_dumpDataSector(DISK_OPERATIONS* disk, int usedSector) // 섹터 단위로 데이터 출력
+// 한 블럭 = MAX_BLOCK_SIZE 바이트 단위로 디스크 메모리 영역을 직접 dump
+// 이전 버전은 sector(=1024B) 단위 산술이라 2KB 블럭 레이아웃과 맞지 않아 항상 절반만, 그것도 잘못된 위치를 보여줬음.
+int fs_dumpDataBlockRaw(DISK_OPERATIONS* disk, int blockIndex)
 {
-	char * start;
-	char * end;
-
-	start = ((DISK_MEMORY *)disk->pdata)->address + usedSector * disk->bytesPerSector; // 디스크에서 사용된 섹터의 시작주소부터
-	end = start + disk->bytesPerSector; // 마지막주소까지
-	printFromP2P(start, end); // 출력
+	char* base = ((DISK_MEMORY*)disk->pdata)->address;
+	char* start = base + (blockIndex * MAX_BLOCK_SIZE);
+	char* end   = start + MAX_BLOCK_SIZE;
+	printFromP2P(start, end);
 	printf("\n\n");
-
 	return EXT2_SUCCESS;
 }
 
 void printFromP2P(char * start, char * end)
 {
-	int start_int, end_int;
-	start_int = (int)start;
-	end_int = (int)end;
+	// 64-bit 환경에서는 포인터가 8바이트라 int로 캐스팅하면 절반이 잘려나가 잘못된 주소가 표시되고
+	// 16바이트 정렬 마스킹도 어긋났음. uintptr_t 로 보존.
+	uintptr_t start_int = (uintptr_t)start;
+	uintptr_t end_int   = (uintptr_t)end;
 
-	printf("start address : %#x , end address : %#x\n\n", start, end - 1);
-	start = (char *)(start_int &= ~(0xf));
-	end = (char *)(end_int |= 0xf);
+	printf("start address : %p , end address : %p\n\n", (void*)start, (void*)(end - 1));
 
-	// start부터 end까지 데이터 출력
+	// 출력 시작/끝 주소를 16바이트 경계로 정렬
+	start = (char *)(start_int &= ~((uintptr_t)0xf));
+	end   = (char *)(end_int   |= 0xf);
+
 	while (start <= end)
 	{
 		if ((start_int & 0xf) == 0)
-			fprintf(stdout, "\n%#08x   ", start);
+			fprintf(stdout, "\n%p   ", (void*)start);
 
 		fprintf(stdout, "%02X  ", *(unsigned char *)start);
 		start++;
 		start_int++;
 	}
 	printf("\n\n");
-
 }
 void fs_dumpDataPart(DISK_OPERATIONS * disk, SHELL_FS_OPERATIONS * fsOprs, const SHELL_ENTRY * parent, SHELL_ENTRY * entry, const char * name)
 {
@@ -52,12 +54,14 @@ void fs_dumpDataPart(DISK_OPERATIONS * disk, SHELL_FS_OPERATIONS * fsOprs, const
 	char * start, *end;
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환
-	if (result = ext2_lookup(&EXT2Parent, name, &EXT2Entry)) return result; // (ext2.c) 해당 이름을 가지는 엔트리의 위치를 찾아서 EXT2Entry에 저장
+	if ((result = ext2_lookup(&EXT2Parent, name, &EXT2Entry))) return; // void 함수에서는 값 없이 return
 
-	get_inode(EXT2Entry.fs, EXT2Entry.entry.inode, &node); // (ext2.c 구현X) inode number를 가진 파일의 INODE의 주소를 node에 저장
+	get_inode(EXT2Entry.fs, EXT2Entry.entry.inode, &node);
 
-	start = ((DISK_MEMORY *)disk->pdata)->address + (1 + node.block[0]) * disk->bytesPerSector; // ???
-	end = start + disk->bytesPerSector; // 섹터 단위
+	// node.block[0]은 (boot 블럭을 제외한) 데이터 영역에서의 블럭 인덱스이고,
+	// disk 메모리에서는 boot 블럭(=1블럭) 다음에 위치하므로 +1, 그리고 BLOCK 크기로 곱해야 함.
+	start = ((DISK_MEMORY *)disk->pdata)->address + (1 + node.block[0]) * MAX_BLOCK_SIZE;
+	end = start + MAX_BLOCK_SIZE;
 	printFromP2P(start, end);
 }
 void fs_dumpfileinode(DISK_OPERATIONS * disk, SHELL_FS_OPERATIONS * fsOprs, const SHELL_ENTRY * parent, SHELL_ENTRY * entry, const char * name)
@@ -69,7 +73,7 @@ void fs_dumpfileinode(DISK_OPERATIONS * disk, SHELL_FS_OPERATIONS * fsOprs, cons
 
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환
-	if (result = ext2_lookup(&EXT2Parent, name, &EXT2Entry)) return result; // (ext2.c) 해당 이름을 가지는 엔트리의 위치를 찾아서 EXT2Entry에 저장
+	if ((result = ext2_lookup(&EXT2Parent, name, &EXT2Entry))) return; // void 함수에서는 값 없이 return
 
 	get_inode(EXT2Entry.fs, EXT2Entry.entry.inode, &node); // (ext2.c 구현X) inode number를 가진 파일의 INODE의 주소를 node에 저장
 	inode = EXT2Entry.entry.inode;
@@ -84,46 +88,34 @@ void fs_dumpDataBlockByNum(DISK_OPERATIONS * disk, SHELL_FS_OPERATIONS * fsOprs,
 {
 	char * start, *end;
 
-	start = ((DISK_MEMORY *)disk->pdata)->address + (1 + num) * disk->bytesPerSector; // ???
-	end = start + disk->bytesPerSector; // 섹터 단위
+	// fs_dumpDataPart 와 같은 보정: BLOCK 단위 산술 + boot 블럭 1개 분 보정.
+	start = ((DISK_MEMORY *)disk->pdata)->address + (1 + num) * MAX_BLOCK_SIZE;
+	end = start + MAX_BLOCK_SIZE;
 	printFromP2P(start, end);
-
 }
 void printf_by_sel(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, SHELL_ENTRY* entry, const char* name, int sel, int num)
 {
+	// 각 메타데이터의 절대 블럭 인덱스: boot(0), super(1), gd(2), block-bitmap(3), inode-bitmap(4), inode-table(5..17)
 	switch (sel) {
-	case 1: // super block 섹터단위 출력
-		fs_dumpDataSector(disk, 1);
+	case 1:	fs_dumpDataBlockRaw(disk, 1); break;	// super block
+	case 2:	fs_dumpDataBlockRaw(disk, 2); break;	// group descriptor table
+	case 3:	fs_dumpDataBlockRaw(disk, 3); break;	// block bitmap
+	case 4:	fs_dumpDataBlockRaw(disk, 4); break;	// inode bitmap
+	case 5:	// inode table은 13블럭에 걸쳐 있으므로 첫 두 블럭만 sample
+		fs_dumpDataBlockRaw(disk, 5);
+		fs_dumpDataBlockRaw(disk, 6);
 		break;
-	case 2: // group descriptor 섹터단위 출력
-		fs_dumpDataSector(disk, 2);
-		break;
-	case 3: // block bitmap 섹터단위 출력
-		fs_dumpDataSector(disk, 3);
-		break;
-	case 4: // inode bitmap 섹터단위 출력
-		fs_dumpDataSector(disk, 4);
-		break;
-	case 5: // inode table 섹터단위 출력
-		fs_dumpDataSector(disk, 5);
-		fs_dumpDataSector(disk, 6);
-		break;
-	case 6: // 해당 이름을 가진 data block을 섹터단위로 출력
-		fs_dumpDataPart(disk, fsOprs, parent, entry, name);
-		break;
-	case 7: // 해당 이름을 가진 파일의 inode 출력
-		fs_dumpfileinode(disk, fsOprs, parent, entry, name);
-		break;
-	case 8: // 해당 num을 가진 data block을 섹터단위로 출력
-		fs_dumpDataBlockByNum(disk, fsOprs, parent, entry, num);
-		break;
+	case 6:	fs_dumpDataPart(disk, fsOprs, parent, entry, name); break;
+	case 7:	fs_dumpfileinode(disk, fsOprs, parent, entry, name); break;
+	case 8:	fs_dumpDataBlockByNum(disk, fsOprs, parent, entry, num); break;
 	}
 }
 
 // 파티션을 해당 파일시스템으로 포맷
 int fs_format(DISK_OPERATIONS* disk, void* param)
 {
-	printf("formatting as a %s\n", (char *)param);
+	const char* label = (param && *(const char*)param) ? (const char*)param : VOLUME_LABLE;
+	printf("formatting as \"%s\"\n", label);
 	ext2_format(disk); // (ext2.c)
 
 	return  1;
@@ -266,7 +258,10 @@ int	fs_create(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	result = ext2_create(&EXT2Parent, name, &EXT2Entry); // (ext2.c) 파일명을 EXT2_ENTRY 형식에 맞게 수정한 뒤 해당 이름을 가지는 엔트리가 존재하지 않으면 부모 디렉터리에 추가해줌
 
-	ext2_entry_to_shell_entry(EXT2Parent.fs, &EXT2Entry, retEntry); // SHELL_ENTRY로 변환
+	// ext2_create 실패시 EXT2Entry 는 비초기화 inode 번호(0)을 가지므로
+	// shell entry 변환을 시도하면 get_inode가 "Invalid inode number"를 출력함. 성공한 경우만 변환.
+	if (result == EXT2_SUCCESS)
+		ext2_entry_to_shell_entry(EXT2Parent.fs, &EXT2Entry, retEntry);
 
 	return result;
 }
@@ -279,7 +274,7 @@ int fs_remove(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 	int			result;
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환 후
-	if (result = ext2_lookup(&EXT2Parent, name, &file)) // 현재 디렉터리에서 해당 파일을 찾음
+	if ((result = ext2_lookup(&EXT2Parent, name, &file))) // 현재 디렉터리에서 해당 파일을 찾음
 		return result;
 
 	return ext2_remove(&file); // 찾은 파일을 삭제
@@ -346,7 +341,7 @@ int fs_lookup(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_EN
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환
 
-	if (result = ext2_lookup(&EXT2Parent, name, &EXT2Entry)) return result; // (ext2.c) 해당 이름을 가지는 엔트리의 위치를 찾아서 EXT2Entry에 저장
+	if ((result = ext2_lookup(&EXT2Parent, name, &EXT2Entry))) return result; // (ext2.c) 해당 이름을 가지는 엔트리의 위치를 찾아서 EXT2Entry에 저장
 
 	ext2_entry_to_shell_entry(EXT2Parent.fs, &EXT2Entry, entry); // SHELL_ENTRY로 변환
 
@@ -433,7 +428,8 @@ int fs_mkdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENT
 
 	result = ext2_mkdir(&EXT2_Parent, name, &EXT2_Entry); // (ext2.c) 디렉터리를 생성하고 '.'와 '..'을 추가
 
-	ext2_entry_to_shell_entry(ext2, &EXT2_Entry, retEntry); // SHELL_ENTRY로 변환
+	if (result == EXT2_SUCCESS)
+		ext2_entry_to_shell_entry(ext2, &EXT2_Entry, retEntry);
 
 	return result;
 }
@@ -452,7 +448,7 @@ int fs_stat(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, unsigned int * t
 	return ext2_df( FSOPRS_TO_EXT2FS( fsOprs ), total, used);
 }
 
-int fs_rmdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* parent, const char* name)
+int fs_rmdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, const SHELL_ENTRY* parent, const char* name)
 {
 	/*
 	이 함수도 DISK_OPERATIONS를 왜 넘겨주는지 모르겠음(사용 안하는 것 같음)
@@ -465,7 +461,7 @@ int fs_rmdir(DISK_OPERATIONS* disk, SHELL_FS_OPERATIONS* fsOprs, SHELL_ENTRY* pa
 	int			result;
 
 	shell_entry_to_ext2_entry(parent, &EXT2Parent); // EXT2_ENTRY로 변환 후
-	if (result = ext2_lookup(&EXT2Parent, name, &file)) // 현재 디렉터리에서 해당 파일을 찾음
+	if ((result = ext2_lookup(&EXT2Parent, name, &file))) // 현재 디렉터리에서 해당 파일을 찾음
 		return result;
 
 	return ext2_rmdir(&file); // 찾은 파일을 삭제
